@@ -86,12 +86,18 @@ Configure these GitHub Actions variables:
 
 Create `.env` inside `DEPLOY_PATH` on the server before the first deployment.
 For example, use `/opt/mysite/.env` when `DEPLOY_PATH` is `/opt/mysite`. Use the
-same fields as `.env.example`. Set `SITE_URL` to the public HTTPS URL and set
+same fields as `.env.example`. Set `SITE_URL` to the public HTTPS URL, set
+`SITE_DOMAIN` to the public hostname without `https://`, and set
 `COOKIE_SECURE=true`.
 
 The server must have Docker with the Compose plugin. If the GHCR package is
 private, run `docker login ghcr.io` once on the server with a read-only package
 token.
+
+The production Compose file runs Caddy in front of the Rust service. Caddy
+listens on ports `80` and `443`, requests TLS certificates automatically, and
+forwards traffic to the private app container. Its certificate data is stored
+in the persistent `caddy-data` volume.
 
 ## Configuration
 
@@ -101,13 +107,15 @@ token.
 | `BIND_ADDRESS` | `127.0.0.1:3000` | Address used by the Rust server |
 | `DATA_DIR` | `data` | Directory for SQLite and uploaded images |
 | `SITE_URL` | `http://127.0.0.1:3000` | Public base URL used in metadata and the sitemap |
+| `SITE_DOMAIN` | `example.com` | Public hostname used by Caddy in production |
 | `COOKIE_SECURE` | `false` | Set to `true` when the site is served over HTTPS |
 | `PORT` | `3000` | Host port used by Docker Compose |
 
 ## Production notes
 
-Put the site behind HTTPS with a reverse proxy such as Caddy or nginx. Set
-`SITE_URL` to the public HTTPS URL and set `COOKIE_SECURE=true`.
+The production Compose file includes Caddy for HTTPS. Set `SITE_URL` to the
+public HTTPS URL, set `SITE_DOMAIN` to the hostname, and set
+`COOKIE_SECURE=true`.
 
 The site adds search metadata, Open Graph metadata, `robots.txt`, and
 `sitemap.xml`. The site title, author name, description, social image, copyright

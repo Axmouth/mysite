@@ -70,13 +70,16 @@ jobs:
           printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
       - name: Create remote directory
-        run: ssh -p "${{ secrets.DEPLOY_SSH_PORT }}" "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}" "mkdir -p '${{ vars.DEPLOY_PATH }}'"
+        run: ssh -p "${{ secrets.DEPLOY_SSH_PORT }}" "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}" "mkdir -p '${{ vars.DEPLOY_PATH }}/deploy'"
 
       - name: Upload Compose files
         run: |
           scp -P "${{ secrets.DEPLOY_SSH_PORT }}" \
             compose.deploy.yaml \
             "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}:${{ vars.DEPLOY_PATH }}/"
+          scp -P "${{ secrets.DEPLOY_SSH_PORT }}" \
+            deploy/Caddyfile \
+            "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}:${{ vars.DEPLOY_PATH }}/deploy/"
 
       - name: Deploy image
         env:
