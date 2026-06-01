@@ -1,0 +1,87 @@
+name: Publish image and deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yaml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.value }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set image name
+        id: image
+        run: |
+          echo "value=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest=ghcr.io/${GITHUB_REPOSITORY,,}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.value }}
+            ${{ steps.image.outputs.latest }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Create remote directory
+        run: ssh -p "${{ secrets.DEPLOY_SSH_PORT }}" "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}" "mkdir -p '${{ vars.DEPLOY_PATH }}'"
+
+      - name: Upload Compose files
+        run: |
+          scp -P "${{ secrets.DEPLOY_SSH_PORT }}" \
+            compose.deploy.yaml \
+            "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}:${{ vars.DEPLOY_PATH }}/"
+
+      - name: Deploy image
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          ssh -p "${{ secrets.DEPLOY_SSH_PORT }}" \
+            "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}" \
+            "cd '${{ vars.DEPLOY_PATH }}' && SITE_IMAGE='${IMAGE}' docker compose -f compose.deploy.yaml pull && SITE_IMAGE='${IMAGE}' docker compose -f compose.deploy.yaml up -d --remove-orphans"
+
+      - name: Check deployed site
+        run: curl --fail --silent --show-error --retry 10 --retry-delay 3 "${{ vars.DEPLOY_HEALTH_URL }}/healthz"

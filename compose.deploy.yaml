@@ -1,0 +1,21 @@
+services:
+  site:
+    image: ${SITE_IMAGE:?Set SITE_IMAGE}
+    restart: unless-stopped
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      SITE_URL: ${SITE_URL:?Set SITE_URL in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - site-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  site-data:

@@ -1,0 +1,23 @@
+services:
+  site:
+    image: ${SITE_IMAGE:-mysite:local}
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-this-local-password}
+      SITE_URL: ${SITE_URL:-http://127.0.0.1:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - site-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  site-data:
