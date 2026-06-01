@@ -78,11 +78,7 @@ impl std::error::Error for AppError {}
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         eprintln!("request failed: {}", self.0);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Something went wrong. Check the server logs.",
-        )
-            .into_response()
+        internal_server_error()
     }
 }
 
@@ -148,9 +144,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/admin/images/{id}/delete", post(delete_image))
         .nest_service("/assets", ServeDir::new("static"))
         .nest_service("/uploads", ServeDir::new(uploads_dir))
+        .fallback(fallback_not_found)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
-        .layer(middleware::from_fn(security_headers))
-        .with_state(state);
+        .layer(middleware::from_fn(security_headers));
+    #[cfg(debug_assertions)]
+    let app = app.route("/__test/500", get(test_internal_server_error));
+    let app = app.with_state(state);
 
     let address = env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:3000".into());
     println!("Listening on http://{address}");
@@ -411,6 +410,15 @@ async fn sitemap_xml(State(state): State<Arc<AppState>>) -> Result<Response, App
         format!(r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>"#),
     )
         .into_response())
+}
+
+async fn fallback_not_found() -> Response {
+    not_found()
+}
+
+#[cfg(debug_assertions)]
+async fn test_internal_server_error() -> Response {
+    AppError("intentional debug error".into()).into_response()
 }
 
 async fn login_page() -> Html<String> {
@@ -1363,15 +1371,39 @@ fn escape_html(input: &str) -> String {
 }
 
 fn not_found() -> Response {
-    (
+    error_page(
         StatusCode::NOT_FOUND,
-        Html(layout(
-            "Not found",
-            r#"<section class="admin-narrow"><p class="eyebrow">404</p><h1>Page not found</h1><a class="text-link" href="/">Return home</a></section>"#,
-            false,
-        )),
+        "Not found",
+        "404",
+        "Page not found",
+        "The page you were looking for does not exist.",
     )
-        .into_response()
+}
+
+fn internal_server_error() -> Response {
+    error_page(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Server error",
+        "500",
+        "Something went wrong",
+        "The server could not complete this request. Please try again shortly.",
+    )
+}
+
+fn error_page(
+    status: StatusCode,
+    title: &str,
+    code: &str,
+    heading: &str,
+    message: &str,
+) -> Response {
+    let content = format!(
+        r#"<section class="error-page"><p class="eyebrow">{}</p><h1>{}</h1><p>{}</p><a class="button secondary" href="/">Return home</a></section>"#,
+        escape_html(code),
+        escape_html(heading),
+        escape_html(message),
+    );
+    (status, Html(layout(title, &content, false))).into_response()
 }
 
 #[cfg(test)]

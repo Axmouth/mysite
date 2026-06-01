@@ -77,6 +77,20 @@ assert_contains "${ROBOTS_RESPONSE}" "${BASE_URL}/sitemap.xml"
 SITEMAP_RESPONSE="$(curl --silent --show-error "${BASE_URL}/sitemap.xml")"
 assert_contains "${SITEMAP_RESPONSE}" "${BASE_URL}/projects"
 
+NOT_FOUND_RESPONSE="$(curl --silent --show-error --include "${BASE_URL}/missing-page")"
+assert_contains "${NOT_FOUND_RESPONSE}" "HTTP/1.1 404 Not Found"
+assert_contains "${NOT_FOUND_RESPONSE}" "Page not found"
+assert_contains "${NOT_FOUND_RESPONSE}" "Return home"
+
+MISSING_PROJECT_RESPONSE="$(curl --silent --show-error --include "${BASE_URL}/projects/missing-project")"
+assert_contains "${MISSING_PROJECT_RESPONSE}" "HTTP/1.1 404 Not Found"
+assert_contains "${MISSING_PROJECT_RESPONSE}" "Page not found"
+
+SERVER_ERROR_RESPONSE="$(curl --silent --show-error --include "${BASE_URL}/__test/500")"
+assert_contains "${SERVER_ERROR_RESPONSE}" "HTTP/1.1 500 Internal Server Error"
+assert_contains "${SERVER_ERROR_RESPONSE}" "Something went wrong"
+assert_contains "${SERVER_ERROR_RESPONSE}" "Please try again shortly"
+
 assert_status 403 \
   --cookie 'admin_session=fake' \
   --header 'Origin: https://attacker.example' \
