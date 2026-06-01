@@ -90,4 +90,4 @@ jobs:
             "cd '${{ vars.DEPLOY_PATH }}' && SITE_IMAGE='${IMAGE}' docker compose -f compose.deploy.yaml pull && SITE_IMAGE='${IMAGE}' docker compose -f compose.deploy.yaml up -d --remove-orphans"
 
       - name: Check deployed site
-        run: curl --fail --silent --show-error --retry 10 --retry-delay 3 "${{ vars.DEPLOY_HEALTH_URL }}/healthz"
+        run: curl --fail --silent --show-error --retry 20 --retry-delay 5 --retry-all-errors "${{ vars.DEPLOY_HEALTH_URL }}/healthz"
