@@ -1328,11 +1328,61 @@ fn footer_link_icon(url: &str) -> &'static str {
         .unwrap_or_default()
         .trim_start_matches("www.");
 
-    match host {
-        "github.com" => "fa-github",
-        "linkedin.com" => "fa-linkedin",
-        _ => "fa-external-link",
+    if host_matches(host, "github.com") {
+        "fa-github"
+    } else if host_matches(host, "gitlab.com") {
+        "fa-gitlab"
+    } else if host_matches(host, "bitbucket.org") {
+        "fa-bitbucket"
+    } else if host_matches(host, "linkedin.com") {
+        "fa-linkedin"
+    } else if host_matches(host, "twitter.com") || host_matches(host, "x.com") {
+        "fa-twitter"
+    } else if host_matches(host, "facebook.com") {
+        "fa-facebook"
+    } else if host_matches(host, "instagram.com") {
+        "fa-instagram"
+    } else if host_matches(host, "youtube.com") || host == "youtu.be" {
+        "fa-youtube"
+    } else if host_matches(host, "reddit.com") {
+        "fa-reddit"
+    } else if host_matches(host, "stackoverflow.com") {
+        "fa-stack-overflow"
+    } else if host_matches(host, "telegram.me") || host == "t.me" {
+        "fa-telegram"
+    } else if host_matches(host, "twitch.tv") {
+        "fa-twitch"
+    } else if host_matches(host, "steamcommunity.com") || host_matches(host, "steampowered.com") {
+        "fa-steam"
+    } else if host_matches(host, "medium.com") {
+        "fa-medium"
+    } else if host_matches(host, "deviantart.com") {
+        "fa-deviantart"
+    } else if host_matches(host, "spotify.com") {
+        "fa-spotify"
+    } else if host_matches(host, "soundcloud.com") {
+        "fa-soundcloud"
+    } else if host_matches(host, "codepen.io") {
+        "fa-codepen"
+    } else if host_matches(host, "flickr.com") {
+        "fa-flickr"
+    } else if host_matches(host, "pinterest.com") {
+        "fa-pinterest"
+    } else if host_matches(host, "tumblr.com") {
+        "fa-tumblr"
+    } else if host_matches(host, "vimeo.com") {
+        "fa-vimeo"
+    } else if host_matches(host, "paypal.com") {
+        "fa-paypal"
+    } else if host_matches(host, "rss.com") {
+        "fa-rss"
+    } else {
+        "fa-external-link"
     }
+}
+
+fn host_matches(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{domain}"))
 }
 
 fn absolute_url(site_url: &str, path: &str) -> String {
@@ -1523,13 +1573,41 @@ mod tests {
 
     #[test]
     fn footer_links_use_recognized_icons() {
-        assert_eq!(footer_link_icon("https://github.com/example"), "fa-github");
-        assert_eq!(
-            footer_link_icon("https://www.linkedin.com/in/example"),
-            "fa-linkedin"
-        );
+        for (url, icon) in [
+            ("https://github.com/example", "fa-github"),
+            ("https://gitlab.com/example", "fa-gitlab"),
+            ("https://bitbucket.org/example", "fa-bitbucket"),
+            ("https://www.linkedin.com/in/example", "fa-linkedin"),
+            ("https://x.com/example", "fa-twitter"),
+            ("https://www.instagram.com/example", "fa-instagram"),
+            ("https://youtube.com/@example", "fa-youtube"),
+            ("https://reddit.com/u/example", "fa-reddit"),
+            (
+                "https://stackoverflow.com/users/1/example",
+                "fa-stack-overflow",
+            ),
+            ("https://t.me/example", "fa-telegram"),
+            ("https://twitch.tv/example", "fa-twitch"),
+            ("https://steamcommunity.com/id/example", "fa-steam"),
+            ("https://medium.com/@example", "fa-medium"),
+            ("https://deviantart.com/example", "fa-deviantart"),
+            ("https://open.spotify.com/user/example", "fa-spotify"),
+            ("https://soundcloud.com/example", "fa-soundcloud"),
+            ("https://codepen.io/example", "fa-codepen"),
+            ("https://flickr.com/photos/example", "fa-flickr"),
+            ("https://pinterest.com/example", "fa-pinterest"),
+            ("https://example.tumblr.com", "fa-tumblr"),
+            ("https://vimeo.com/example", "fa-vimeo"),
+            ("https://paypal.com/paypalme/example", "fa-paypal"),
+        ] {
+            assert_eq!(footer_link_icon(url), icon);
+        }
         assert_eq!(
             footer_link_icon("https://example.com/projects"),
+            "fa-external-link"
+        );
+        assert_eq!(
+            footer_link_icon("https://notgithub.com/example"),
             "fa-external-link"
         );
     }
