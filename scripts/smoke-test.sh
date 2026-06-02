@@ -69,6 +69,8 @@ assert_contains "${HOME_RESPONSE}" "HTTP/1.1 200 OK"
 assert_contains "${HOME_RESPONSE}" "content-security-policy:"
 assert_contains "${HOME_RESPONSE}" '<link rel="canonical"'
 assert_contains "${HOME_RESPONSE}" '<meta name="description"'
+assert_contains "${HOME_RESPONSE}" "/assets/theme.js?v="
+assert_contains "${HOME_RESPONSE}" "/assets/style.css?v="
 
 ROBOTS_RESPONSE="$(curl --silent --show-error "${BASE_URL}/robots.txt")"
 assert_contains "${ROBOTS_RESPONSE}" "Disallow: /admin"

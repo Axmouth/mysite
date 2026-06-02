@@ -30,6 +30,7 @@ This is a small corner of the web for my work and notes.
 
 [See my projects](/projects)
 "#;
+const ASSET_VERSION: &str = "20260602-1";
 
 struct AppState {
     db: Mutex<Connection>,
@@ -1199,17 +1200,27 @@ fn layout_parts(
         )
     };
     let icon_assets = if admin || !links.is_empty() {
-        r#"<link rel="stylesheet" href="/assets/vendor/font-awesome/css/font-awesome.min.css">"#
+        format!(
+            r#"<link rel="stylesheet" href="{}">"#,
+            asset_url("/assets/vendor/font-awesome/css/font-awesome.min.css")
+        )
     } else {
-        ""
+        String::new()
     };
     let editor_assets = if admin {
-        r#"<link rel="stylesheet" href="/assets/vendor/easymde/easymde.min.css"><script src="/assets/vendor/easymde/easymde.min.js" defer></script><script src="/assets/editor.js" defer></script>"#
+        format!(
+            r#"<link rel="stylesheet" href="{}"><script src="{}" defer></script><script src="{}" defer></script>"#,
+            asset_url("/assets/vendor/easymde/easymde.min.css"),
+            asset_url("/assets/vendor/easymde/easymde.min.js"),
+            asset_url("/assets/editor.js"),
+        )
     } else {
-        ""
+        String::new()
     };
+    let theme_asset = asset_url("/assets/theme.js");
+    let style_asset = asset_url("/assets/style.css");
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{}</title><meta name="description" content="{}"><meta name="author" content="{}"><meta name="robots" content="{}"><meta property="og:type" content="website"><meta property="og:title" content="{}"><meta property="og:description" content="{}"><meta name="twitter:card" content="summary">{}<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2328624f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='sans-serif' font-size='38' font-weight='700' fill='white'%3EG%3C/text%3E%3C/svg%3E"><script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/style.css">{}{}</head><body class="{}"><div class="site-frame"><nav class="site-nav"><a class="brand" href="/">{}</a><div><a href="/projects">Projects</a>{}<button class="theme-toggle" type="button"><span class="sun-icon" aria-hidden="true">&#9788;</span><span class="moon-icon" aria-hidden="true">&#9790;</span></button></div></nav><main>{}</main><footer><span>{}</span><div>{}</div></footer></div></body></html>"#,
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{}</title><meta name="description" content="{}"><meta name="author" content="{}"><meta name="robots" content="{}"><meta property="og:type" content="website"><meta property="og:title" content="{}"><meta property="og:description" content="{}"><meta name="twitter:card" content="summary">{}<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2328624f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='sans-serif' font-size='38' font-weight='700' fill='white'%3EG%3C/text%3E%3C/svg%3E"><script src="{}"></script><link rel="stylesheet" href="{}">{}{}</head><body class="{}"><div class="site-frame"><nav class="site-nav"><a class="brand" href="/">{}</a><div><a href="/projects">Projects</a>{}<button class="theme-toggle" type="button"><span class="sun-icon" aria-hidden="true">&#9788;</span><span class="moon-icon" aria-hidden="true">&#9790;</span></button></div></nav><main>{}</main><footer><span>{}</span><div>{}</div></footer></div></body></html>"#,
         escape_html(document_title),
         escape_html(description),
         escape_html(author),
@@ -1217,6 +1228,8 @@ fn layout_parts(
         escape_html(title),
         escape_html(description),
         public_meta,
+        theme_asset,
+        style_asset,
         icon_assets,
         editor_assets,
         admin_class,
@@ -1292,6 +1305,10 @@ fn strip_http_scheme(url: &str) -> Option<&str> {
 
 fn is_http_url(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://")
+}
+
+fn asset_url(path: &str) -> String {
+    format!("{path}?v={ASSET_VERSION}")
 }
 
 fn footer_link_icon(url: &str) -> &'static str {
@@ -1533,6 +1550,14 @@ mod tests {
             r#"<a href="https://github.com/example"><i class="fa fa-github footer-link-icon"></i>GitHub</a>"#,
         );
         assert!(page.contains("/assets/vendor/font-awesome/css/font-awesome.min.css"));
+    }
+
+    #[test]
+    fn static_asset_urls_include_the_cache_busting_version() {
+        assert_eq!(
+            asset_url("/assets/theme.js"),
+            format!("/assets/theme.js?v={ASSET_VERSION}")
+        );
     }
 
     #[test]
