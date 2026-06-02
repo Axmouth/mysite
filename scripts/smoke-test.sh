@@ -106,11 +106,18 @@ assert_status 303 \
   --cookie "${COOKIE_JAR}" \
   --header "Origin: ${BASE_URL}" \
   --data-urlencode 'site_title=Smoke Site' \
+  --data-urlencode 'home_seo_title=Smoke Home SEO Title' \
   --data-urlencode 'author_name=Smoke Author' \
   --data-urlencode 'site_description=Smoke description.' \
   --data-urlencode 'social_image=' \
   --data-urlencode 'copyright_claim=Copyright Smoke.' \
   "${BASE_URL}/admin/settings"
+
+HOME_RESPONSE="$(curl --silent --show-error "${BASE_URL}/")"
+assert_contains "${HOME_RESPONSE}" "<title>Smoke Home SEO Title</title>"
+
+PROJECTS_RESPONSE="$(curl --silent --show-error "${BASE_URL}/projects")"
+assert_contains "${PROJECTS_RESPONSE}" "<title>Projects | Smoke Site</title>"
 
 assert_status 303 \
   --cookie "${COOKIE_JAR}" \

@@ -16,6 +16,8 @@ services:
       - "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
       - "traefik.http.routers.mysite.entrypoints=websecure"
       - "traefik.http.routers.mysite.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.mysite.middlewares=mysite-compress"
+      - "traefik.http.middlewares.mysite-compress.compress=true"
       - "traefik.http.services.mysite.loadbalancer.server.port=3000"
     volumes:
       - site-data:/app/data

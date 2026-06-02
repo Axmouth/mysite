@@ -209,6 +209,10 @@ fn initialize_database(db: &Connection) -> rusqlite::Result<()> {
     for (key, value) in [
         ("site_title", "George"),
         (
+            "home_seo_title",
+            "George | Personal Website and Project Archive",
+        ),
+        (
             "site_description",
             "Personal website and project archive for George.",
         ),
@@ -314,7 +318,7 @@ async fn home(State(state): State<Arc<AppState>>) -> Result<Html<String>, AppErr
     )?;
     Ok(Html(site_layout(
         &state,
-        "Home",
+        &setting(&state, "home_seo_title")?,
         &setting(&state, "site_description")?,
         "/",
         None,
@@ -524,6 +528,7 @@ async fn admin_settings(
     }
     let copyright = setting(&state, "copyright_claim")?;
     let site_title = setting(&state, "site_title")?;
+    let home_seo_title = setting(&state, "home_seo_title")?;
     let site_description = setting(&state, "site_description")?;
     let author_name = setting(&state, "author_name")?;
     let social_image = setting(&state, "social_image")?;
@@ -539,8 +544,9 @@ async fn admin_settings(
         .unwrap();
     }
     let content = format!(
-        r#"<section class="admin-shell"><a class="text-link" href="/admin">&larr; Admin</a><h1>Site settings</h1><form method="post" class="panel form-stack"><label>Site title<input name="site_title" value="{}" required></label><label>Author name<input name="author_name" value="{}" required></label><label>Search description<textarea name="site_description" rows="3" required>{}</textarea></label><label>Social image URL <span class="hint">(optional; used when sharing the site)</span><input name="social_image" value="{}"></label><label>Copyright claim<input name="copyright_claim" value="{}" required></label><button type="submit">Save settings</button></form><div class="panel settings-panel"><h2>Footer links</h2><ul class="admin-link-list">{links_html}</ul><form method="post" action="/admin/links" class="inline-form"><label>Label<input name="label" placeholder="GitHub" required></label><label>URL<input name="url" type="url" placeholder="https://github.com/..." required></label><button type="submit">Add link</button></form></div></section>"#,
+        r#"<section class="admin-shell"><a class="text-link" href="/admin">&larr; Admin</a><h1>Site settings</h1><form method="post" class="panel form-stack"><label>Site title<input name="site_title" value="{}" required></label><label>Homepage SEO title <span class="hint">(used as the complete browser and search-result title)</span><input name="home_seo_title" value="{}" required></label><label>Author name<input name="author_name" value="{}" required></label><label>Search description<textarea name="site_description" rows="3" required>{}</textarea></label><label>Social image URL <span class="hint">(optional; used when sharing the site)</span><input name="social_image" value="{}"></label><label>Copyright claim<input name="copyright_claim" value="{}" required></label><button type="submit">Save settings</button></form><div class="panel settings-panel"><h2>Footer links</h2><ul class="admin-link-list">{links_html}</ul><form method="post" action="/admin/links" class="inline-form"><label>Label<input name="label" placeholder="GitHub" required></label><label>URL<input name="url" type="url" placeholder="https://github.com/..." required></label><button type="submit">Add link</button></form></div></section>"#,
         escape_html(&site_title),
+        escape_html(&home_seo_title),
         escape_html(&author_name),
         escape_html(&site_description),
         escape_html(&social_image),
@@ -552,6 +558,7 @@ async fn admin_settings(
 #[derive(Deserialize)]
 struct SettingsForm {
     site_title: String,
+    home_seo_title: String,
     author_name: String,
     site_description: String,
     social_image: String,
@@ -579,6 +586,7 @@ async fn update_settings(
     let db = state.db.lock().unwrap();
     for (key, value) in [
         ("site_title", form.site_title),
+        ("home_seo_title", form.home_seo_title),
         ("author_name", form.author_name),
         ("site_description", form.site_description),
         ("social_image", form.social_image),
@@ -1073,8 +1081,10 @@ fn project_form(
 }
 
 fn layout(title: &str, content: &str, admin: bool) -> String {
+    let document_title = format!("{title} | George");
     layout_parts(
         title,
+        &document_title,
         "Private site administration.",
         "",
         "",
@@ -1105,6 +1115,11 @@ fn site_layout(
         social_image.unwrap_or(&configured_social_image),
     );
     let canonical = format!("{}{}", state.site_url, path);
+    let document_title = if path == "/" {
+        title.to_string()
+    } else {
+        format!("{title} | {site_title}")
+    };
     let mut links = String::new();
     for link in list_footer_links(state)? {
         if !is_http_url(&link.url) {
@@ -1112,14 +1127,16 @@ fn site_layout(
         }
         write!(
             links,
-            r#"<a href="{}" rel="me">{}</a>"#,
+            r#"<a href="{}" rel="me"><i class="fa {} footer-link-icon" aria-hidden="true"></i>{}</a>"#,
             escape_html(&link.url),
+            footer_link_icon(&link.url),
             escape_html(&link.label),
         )
         .unwrap();
     }
     Ok(layout_parts(
         title,
+        &document_title,
         description,
         &canonical,
         &image,
@@ -1135,6 +1152,7 @@ fn site_layout(
 #[allow(clippy::too_many_arguments)]
 fn layout_parts(
     title: &str,
+    document_title: &str,
     description: &str,
     canonical: &str,
     social_image: &str,
@@ -1180,21 +1198,26 @@ fn layout_parts(
             json_escape(author),
         )
     };
+    let icon_assets = if admin || !links.is_empty() {
+        r#"<link rel="stylesheet" href="/assets/vendor/font-awesome/css/font-awesome.min.css">"#
+    } else {
+        ""
+    };
     let editor_assets = if admin {
-        r#"<link rel="stylesheet" href="/assets/vendor/font-awesome/css/font-awesome.min.css"><link rel="stylesheet" href="/assets/vendor/easymde/easymde.min.css"><script src="/assets/vendor/easymde/easymde.min.js" defer></script><script src="/assets/editor.js" defer></script>"#
+        r#"<link rel="stylesheet" href="/assets/vendor/easymde/easymde.min.css"><script src="/assets/vendor/easymde/easymde.min.js" defer></script><script src="/assets/editor.js" defer></script>"#
     } else {
         ""
     };
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{} | {}</title><meta name="description" content="{}"><meta name="author" content="{}"><meta name="robots" content="{}"><meta property="og:type" content="website"><meta property="og:title" content="{}"><meta property="og:description" content="{}"><meta name="twitter:card" content="summary">{}<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2328624f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='sans-serif' font-size='38' font-weight='700' fill='white'%3EG%3C/text%3E%3C/svg%3E"><script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/style.css">{}</head><body class="{}"><div class="site-frame"><nav class="site-nav"><a class="brand" href="/">{}</a><div><a href="/projects">Projects</a>{}<button class="theme-toggle" type="button"><span class="sun-icon" aria-hidden="true">&#9788;</span><span class="moon-icon" aria-hidden="true">&#9790;</span></button></div></nav><main>{}</main><footer><span>{}</span><div>{}</div></footer></div></body></html>"#,
-        escape_html(title),
-        escape_html(site_title),
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{}</title><meta name="description" content="{}"><meta name="author" content="{}"><meta name="robots" content="{}"><meta property="og:type" content="website"><meta property="og:title" content="{}"><meta property="og:description" content="{}"><meta name="twitter:card" content="summary">{}<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2328624f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='sans-serif' font-size='38' font-weight='700' fill='white'%3EG%3C/text%3E%3C/svg%3E"><script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/style.css">{}{}</head><body class="{}"><div class="site-frame"><nav class="site-nav"><a class="brand" href="/">{}</a><div><a href="/projects">Projects</a>{}<button class="theme-toggle" type="button"><span class="sun-icon" aria-hidden="true">&#9788;</span><span class="moon-icon" aria-hidden="true">&#9790;</span></button></div></nav><main>{}</main><footer><span>{}</span><div>{}</div></footer></div></body></html>"#,
+        escape_html(document_title),
         escape_html(description),
         escape_html(author),
         robots,
         escape_html(title),
         escape_html(description),
         public_meta,
+        icon_assets,
         editor_assets,
         admin_class,
         escape_html(site_title),
@@ -1269,6 +1292,30 @@ fn strip_http_scheme(url: &str) -> Option<&str> {
 
 fn is_http_url(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://")
+}
+
+fn footer_link_icon(url: &str) -> &'static str {
+    let lower_url = url.to_ascii_lowercase();
+    let host = lower_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(&lower_url)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .rsplit('@')
+        .next()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches("www.");
+
+    match host {
+        "github.com" => "fa-github",
+        "linkedin.com" => "fa-linkedin",
+        _ => "fa-external-link",
+    }
 }
 
 fn absolute_url(site_url: &str, path: &str) -> String {
@@ -1455,6 +1502,37 @@ mod tests {
         assert!(is_http_url("https://example.com"));
         assert!(is_http_url("http://example.com"));
         assert!(!is_http_url("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn footer_links_use_recognized_icons() {
+        assert_eq!(footer_link_icon("https://github.com/example"), "fa-github");
+        assert_eq!(
+            footer_link_icon("https://www.linkedin.com/in/example"),
+            "fa-linkedin"
+        );
+        assert_eq!(
+            footer_link_icon("https://example.com/projects"),
+            "fa-external-link"
+        );
+    }
+
+    #[test]
+    fn public_footer_icons_load_the_local_icon_stylesheet() {
+        let page = layout_parts(
+            "Home",
+            "Example | Home",
+            "Description",
+            "https://example.com/",
+            "",
+            "Example",
+            "Example",
+            "",
+            false,
+            "",
+            r#"<a href="https://github.com/example"><i class="fa fa-github footer-link-icon"></i>GitHub</a>"#,
+        );
+        assert!(page.contains("/assets/vendor/font-awesome/css/font-awesome.min.css"));
     }
 
     #[test]

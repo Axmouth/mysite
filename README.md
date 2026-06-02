@@ -149,6 +149,8 @@ services:
       - "traefik.http.routers.notes.rule=Host(`${NOTES_DOMAIN:?Set NOTES_DOMAIN in .env}`)"
       - "traefik.http.routers.notes.entrypoints=websecure"
       - "traefik.http.routers.notes.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.notes.middlewares=notes-compress"
+      - "traefik.http.middlewares.notes-compress.compress=true"
       - "traefik.http.services.notes.loadbalancer.server.port=8080"
 
 networks:
@@ -187,8 +189,10 @@ NOTES_IMAGE=ghcr.io/your-user/notes:latest docker compose -f compose.deploy.yaml
 The shared Traefik container notices the labels automatically. There is no
 central proxy route file to edit and no proxy restart is needed.
 
-Use a unique router and service name such as `notes` for each app. If another
-project uses port `8080` inside its own container, that is fine. Add a DNS
+Use unique router, service, and middleware names such as `notes` and
+`notes-compress` for each app. The compression middleware reduces the size of
+text responses such as HTML, CSS, and JavaScript. If another project uses port
+`8080` inside its own container, that is fine. Add a DNS
 record for each subdomain, or add one wildcard `*.axmouth.dev` record pointing
 to the server so new subdomains work without further DNS edits.
 
@@ -210,13 +214,14 @@ more hardened server, put a restricted Docker socket proxy in front of Traefik.
 
 ## Production notes
 
-The production Compose file publishes Traefik labels for HTTPS. Set `SITE_URL`
-to the public HTTPS URL, set `SITE_DOMAIN` to the hostname, and set
-`COOKIE_SECURE=true`.
+The production Compose file publishes Traefik labels for HTTPS and response
+compression. Set `SITE_URL` to the public HTTPS URL, set `SITE_DOMAIN` to the
+hostname, and set `COOKIE_SECURE=true`.
 
 The site adds search metadata, Open Graph metadata, `robots.txt`, and
-`sitemap.xml`. The site title, author name, description, social image, copyright
-claim, and footer links can be edited from `/admin/settings`.
+`sitemap.xml`. The site title, homepage SEO title, author name, description,
+social image, copyright claim, and footer links can be edited from
+`/admin/settings`.
 
 The admin area has same-origin checks for changes, login throttling, secure
 response headers, and upload validation. Raw HTML in Markdown is ignored.
