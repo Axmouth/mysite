@@ -222,4 +222,17 @@ The admin area has same-origin checks for changes, login throttling, secure
 response headers, and upload validation. Raw HTML in Markdown is ignored.
 
 The `data` volume contains both the SQLite database and uploaded images. Keep
-that volume when replacing or upgrading the container.
+that volume when replacing or upgrading the container. Normal
+`docker compose up -d` deployments and `docker compose down` keep named
+volumes. Do not use `docker compose down --volumes` in production unless you
+intend to delete the stored content.
+
+Keep each production Compose file in a stable server directory such as
+`/opt/mysite`. Docker Compose derives the default volume name from that
+directory. Moving the Compose file to a differently named directory creates a
+new empty volume unless the volume name is configured explicitly.
+
+The shared Traefik stack stores its TLS certificate state in its own
+`traefik-data` volume. Keep `/opt/proxy/.env`, `/opt/mysite/.env`, and the
+Docker volumes when maintaining the server. The `.env` files contain runtime
+configuration and are not uploaded by the deployment workflow.
