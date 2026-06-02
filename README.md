@@ -130,12 +130,15 @@ Then install the shared proxy and deploy this app again. The `site-data` volume
 is kept by `docker compose down`. The old Caddy volumes can be removed later
 after the migration is confirmed.
 
-For another app, join the same network and add labels like these:
+For another app, add a production Compose file inside that app's own
+repository. For example, a notes app could store this as
+`compose.deploy.yaml`:
 
 ```yaml
 services:
-  app:
-    image: your-image
+  notes:
+    image: ${NOTES_IMAGE:?Set NOTES_IMAGE}
+    restart: unless-stopped
     expose:
       - "8080"
     networks:
@@ -143,7 +146,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=web"
-      - "traefik.http.routers.notes.rule=Host(`notes.axmouth.dev`)"
+      - "traefik.http.routers.notes.rule=Host(`${NOTES_DOMAIN:?Set NOTES_DOMAIN in .env}`)"
       - "traefik.http.routers.notes.entrypoints=websecure"
       - "traefik.http.routers.notes.tls.certresolver=letsencrypt"
       - "traefik.http.services.notes.loadbalancer.server.port=8080"
@@ -153,7 +156,39 @@ networks:
     external: true
 ```
 
-Use a unique router and service name such as `notes` for each app. Add a DNS
+The labels go under the app service, next to `image`, `expose`, and `networks`.
+`expose` is the port that the app listens on inside its container. It does not
+publish that port directly on the server. Traefik receives HTTPS traffic and
+forwards it to that private port.
+
+Create a server directory and `.env` file for that app:
+
+```sh
+mkdir -p /opt/notes
+cd /opt/notes
+nano .env
+```
+
+For this example, `/opt/notes/.env` contains:
+
+```env
+NOTES_DOMAIN=notes.axmouth.dev
+```
+
+Upload or copy the notes app's `compose.deploy.yaml` to
+`/opt/notes/compose.deploy.yaml`, then deploy its image:
+
+```sh
+cd /opt/notes
+NOTES_IMAGE=ghcr.io/your-user/notes:latest docker compose -f compose.deploy.yaml pull
+NOTES_IMAGE=ghcr.io/your-user/notes:latest docker compose -f compose.deploy.yaml up -d
+```
+
+The shared Traefik container notices the labels automatically. There is no
+central proxy route file to edit and no proxy restart is needed.
+
+Use a unique router and service name such as `notes` for each app. If another
+project uses port `8080` inside its own container, that is fine. Add a DNS
 record for each subdomain, or add one wildcard `*.axmouth.dev` record pointing
 to the server so new subdomains work without further DNS edits.
 
