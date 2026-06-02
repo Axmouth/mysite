@@ -64,7 +64,7 @@ GitHub Actions runs the verification suite for pull requests and pushes to
 
 The deployment workflow is stored in `.github/workflows/deploy.yaml`. After
 verification passes, it builds one Docker image, pushes a commit tag and a
-`latest` tag to GHCR, uploads the Compose files over SSH, pulls the new image on
+`latest` tag to GHCR, uploads the Compose file over SSH, pulls the new image on
 the server, recreates the service, and checks `/healthz`.
 
 Configure these GitHub Actions secrets:
@@ -94,10 +94,72 @@ The server must have Docker with the Compose plugin. If the GHCR package is
 private, run `docker login ghcr.io` once on the server with a read-only package
 token.
 
-The production Compose file runs Caddy in front of the Rust service. Caddy
-listens on ports `80` and `443`, requests TLS certificates automatically, and
-forwards traffic to the private app container. Its certificate data is stored
-in the persistent `caddy-data` volume.
+The production Compose file joins the shared external Docker network named
+`web`. It declares its public hostname with Traefik labels. The shared proxy
+must be installed once on the server before deploying the app.
+
+## Shared reverse proxy
+
+The server should run one Traefik stack that owns ports `80` and `443`. Each
+app remains in its own repository and declares its own hostname using Docker
+labels. Traefik discovers those labels and requests TLS certificates
+automatically.
+
+The proxy template is stored in `deploy/proxy`. Copy `compose.yaml` to
+`/opt/proxy/compose.yaml` on the server and copy `.env.example` to
+`/opt/proxy/.env`. Then install it once from the server:
+
+```sh
+docker network create web
+sudoedit /opt/proxy/.env
+cd /opt/proxy
+docker compose up -d
+```
+
+Only `ACME_EMAIL` is required in `/opt/proxy/.env`.
+
+When migrating from the older bundled Caddy setup, stop the old app stack
+before starting Traefik because both proxies need ports `80` and `443`:
+
+```sh
+cd /opt/mysite
+SITE_IMAGE=unused docker compose -f compose.deploy.yaml down
+```
+
+Then install the shared proxy and deploy this app again. The `site-data` volume
+is kept by `docker compose down`. The old Caddy volumes can be removed later
+after the migration is confirmed.
+
+For another app, join the same network and add labels like these:
+
+```yaml
+services:
+  app:
+    image: your-image
+    expose:
+      - "8080"
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.notes.rule=Host(`notes.axmouth.dev`)"
+      - "traefik.http.routers.notes.entrypoints=websecure"
+      - "traefik.http.routers.notes.tls.certresolver=letsencrypt"
+      - "traefik.http.services.notes.loadbalancer.server.port=8080"
+
+networks:
+  web:
+    external: true
+```
+
+Use a unique router and service name such as `notes` for each app. Add a DNS
+record for each subdomain, or add one wildcard `*.axmouth.dev` record pointing
+to the server so new subdomains work without further DNS edits.
+
+The basic proxy template mounts the Docker socket read-only so Traefik can
+discover containers. Access to the Docker API is security sensitive. For a
+more hardened server, put a restricted Docker socket proxy in front of Traefik.
 
 ## Configuration
 
@@ -107,14 +169,14 @@ in the persistent `caddy-data` volume.
 | `BIND_ADDRESS` | `127.0.0.1:3000` | Address used by the Rust server |
 | `DATA_DIR` | `data` | Directory for SQLite and uploaded images |
 | `SITE_URL` | `http://127.0.0.1:3000` | Public base URL used in metadata and the sitemap |
-| `SITE_DOMAIN` | `example.com` | Public hostname used by Caddy in production |
+| `SITE_DOMAIN` | `example.com` | Public hostname used by Traefik in production |
 | `COOKIE_SECURE` | `false` | Set to `true` when the site is served over HTTPS |
 | `PORT` | `3000` | Host port used by Docker Compose |
 
 ## Production notes
 
-The production Compose file includes Caddy for HTTPS. Set `SITE_URL` to the
-public HTTPS URL, set `SITE_DOMAIN` to the hostname, and set
+The production Compose file publishes Traefik labels for HTTPS. Set `SITE_URL`
+to the public HTTPS URL, set `SITE_DOMAIN` to the hostname, and set
 `COOKIE_SECURE=true`.
 
 The site adds search metadata, Open Graph metadata, `robots.txt`, and

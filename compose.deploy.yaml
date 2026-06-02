@@ -8,6 +8,15 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
     expose:
       - "3000"
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+      - "traefik.http.routers.mysite.entrypoints=websecure"
+      - "traefik.http.routers.mysite.tls.certresolver=letsencrypt"
+      - "traefik.http.services.mysite.loadbalancer.server.port=3000"
     volumes:
       - site-data:/app/data
     healthcheck:
@@ -17,24 +26,9 @@ services:
       retries: 3
       start_period: 5s
 
-  caddy:
-    image: caddy:2.11.3-alpine
-    restart: unless-stopped
-    depends_on:
-      site:
-        condition: service_healthy
-    environment:
-      SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./deploy:/etc/caddy:ro
-      - caddy-data:/data
-      - caddy-config:/config
-
 volumes:
   site-data:
-  caddy-data:
-  caddy-config:
+
+networks:
+  web:
+    external: true

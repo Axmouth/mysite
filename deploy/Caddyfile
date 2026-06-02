@@ -1,3 +1,0 @@
-{$SITE_DOMAIN} {
-    reverse_proxy site:3000
-}
