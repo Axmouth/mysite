@@ -1126,14 +1126,7 @@ fn site_layout(
         if !is_http_url(&link.url) {
             continue;
         }
-        write!(
-            links,
-            r#"<a href="{}" rel="me"><i class="fa {} footer-link-icon" aria-hidden="true"></i>{}</a>"#,
-            escape_html(&link.url),
-            footer_link_icon(&link.url),
-            escape_html(&link.label),
-        )
-        .unwrap();
+        links.push_str(&footer_link_html(&link));
     }
     Ok(layout_parts(
         title,
@@ -1393,6 +1386,15 @@ fn footer_link_icon(url: &str) -> &'static str {
     } else {
         "fa-external-link"
     }
+}
+
+fn footer_link_html(link: &FooterLink) -> String {
+    format!(
+        r#"<a href="{}" target="_blank" rel="me noopener noreferrer"><i class="fa {} footer-link-icon" aria-hidden="true"></i>{}</a>"#,
+        escape_html(&link.url),
+        footer_link_icon(&link.url),
+        escape_html(&link.label),
+    )
 }
 
 fn host_matches(host: &str, domain: &str) -> bool {
@@ -1655,6 +1657,17 @@ mod tests {
             r#"<a href="https://github.com/example"><i class="fa fa-github footer-link-icon"></i>GitHub</a>"#,
         );
         assert!(page.contains("/assets/vendor/font-awesome/css/font-awesome.min.css"));
+    }
+
+    #[test]
+    fn footer_links_open_in_a_separate_tab_safely() {
+        let html = footer_link_html(&FooterLink {
+            id: 1,
+            label: "GitHub".into(),
+            url: "https://github.com/example".into(),
+        });
+        assert!(html.contains(r#"target="_blank""#));
+        assert!(html.contains(r#"rel="me noopener noreferrer""#));
     }
 
     #[test]
