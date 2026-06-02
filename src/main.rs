@@ -1348,8 +1348,16 @@ fn footer_link_icon(url: &str) -> &'static str {
         "fa-reddit"
     } else if host_matches(host, "stackoverflow.com") {
         "fa-stack-overflow"
+    } else if host_matches(host, "stackexchange.com") {
+        "fa-stack-exchange"
+    } else if host_matches(host, "news.ycombinator.com") {
+        "fa-hacker-news"
     } else if host_matches(host, "telegram.me") || host == "t.me" {
         "fa-telegram"
+    } else if host_matches(host, "slack.com") {
+        "fa-slack"
+    } else if host_matches(host, "whatsapp.com") || host == "wa.me" {
+        "fa-whatsapp"
     } else if host_matches(host, "twitch.tv") {
         "fa-twitch"
     } else if host_matches(host, "steamcommunity.com") || host_matches(host, "steampowered.com") {
@@ -1364,6 +1372,12 @@ fn footer_link_icon(url: &str) -> &'static str {
         "fa-soundcloud"
     } else if host_matches(host, "codepen.io") {
         "fa-codepen"
+    } else if host_matches(host, "producthunt.com") {
+        "fa-product-hunt"
+    } else if host_matches(host, "trello.com") {
+        "fa-trello"
+    } else if host_matches(host, "dropbox.com") {
+        "fa-dropbox"
     } else if host_matches(host, "flickr.com") {
         "fa-flickr"
     } else if host_matches(host, "pinterest.com") {
@@ -1586,7 +1600,17 @@ mod tests {
                 "https://stackoverflow.com/users/1/example",
                 "fa-stack-overflow",
             ),
+            (
+                "https://stackexchange.com/users/1/example",
+                "fa-stack-exchange",
+            ),
+            (
+                "https://news.ycombinator.com/user?id=example",
+                "fa-hacker-news",
+            ),
             ("https://t.me/example", "fa-telegram"),
+            ("https://example.slack.com", "fa-slack"),
+            ("https://wa.me/123456789", "fa-whatsapp"),
             ("https://twitch.tv/example", "fa-twitch"),
             ("https://steamcommunity.com/id/example", "fa-steam"),
             ("https://medium.com/@example", "fa-medium"),
@@ -1594,6 +1618,9 @@ mod tests {
             ("https://open.spotify.com/user/example", "fa-spotify"),
             ("https://soundcloud.com/example", "fa-soundcloud"),
             ("https://codepen.io/example", "fa-codepen"),
+            ("https://producthunt.com/@example", "fa-product-hunt"),
+            ("https://trello.com/example", "fa-trello"),
+            ("https://dropbox.com/example", "fa-dropbox"),
             ("https://flickr.com/photos/example", "fa-flickr"),
             ("https://pinterest.com/example", "fa-pinterest"),
             ("https://example.tumblr.com", "fa-tumblr"),
