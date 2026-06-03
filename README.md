@@ -196,6 +196,13 @@ text responses such as HTML, CSS, and JavaScript. If another project uses port
 record for each subdomain, or add one wildcard `*.axmouth.dev` record pointing
 to the server so new subdomains work without further DNS edits.
 
+For an app that should answer both the apex hostname and its `www` alias, use
+a rule like this:
+
+```yaml
+- "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`) || Host(`www.${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+```
+
 The basic proxy template mounts the Docker socket read-only so Traefik can
 discover containers. Access to the Docker API is security sensitive. For a
 more hardened server, put a restricted Docker socket proxy in front of Traefik.

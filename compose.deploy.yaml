@@ -13,7 +13,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=web"
-      - "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+      - "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`) || Host(`www.${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
       - "traefik.http.routers.mysite.entrypoints=websecure"
       - "traefik.http.routers.mysite.tls.certresolver=letsencrypt"
       - "traefik.http.routers.mysite.middlewares=mysite-compress"
