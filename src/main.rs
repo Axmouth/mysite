@@ -228,6 +228,52 @@ fn initialize_database(db: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+async fn security_headers1(mut request: Request<Body>, next: Next) -> Response {
+    let is_admin = request.uri().path().starts_with("/admin");
+    if is_admin
+        && request.method() == axum::http::Method::POST
+        && request.uri().path() != "/admin/login"
+        && !has_same_origin(request.headers())
+    {
+        return (StatusCode::FORBIDDEN, "Cross-origin admin request rejected").into_response();
+    }
+
+    // Generate a secure, randomized token for this single page load
+    let nonce = random_token()[0..16].to_string();
+    request.extensions_mut().insert(nonce.clone());
+
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+
+    // Inject the generated nonce into style-src and script-src
+    let csp = format!(
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'nonce-{}'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+        nonce
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_str(&csp).unwrap(),
+    );
+
+    if is_admin {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    response
+}
+
 async fn security_headers(request: Request<Body>, next: Next) -> Response {
     let is_admin = request.uri().path().starts_with("/admin");
     if is_admin
@@ -258,8 +304,8 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
-        ),
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+            ),
     );
     if is_admin {
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -334,14 +380,18 @@ async fn project_list(State(state): State<Arc<AppState>>) -> Result<Html<String>
         "<header class=\"page-header\"><p class=\"eyebrow\">Archive</p><h1>Projects</h1><p>Things I have built, explored, and learned from.</p></header><div class=\"project-grid\">",
     );
     for project in projects {
+        let slug = escape_html(&project.slug);
         write!(
             content,
-            "<article class=\"project-card\">{}<div><h2><a href=\"/projects/{}\">{}</a></h2><p>{}</p><a class=\"text-link\" href=\"/projects/{}\">Read more <span aria-hidden=\"true\">&rarr;</span></a></div></article>",
+            "<article class=\"project-card\"><a href=\"/projects/{}\" data-vt-img=\"{}\" style=\"display: block;\">{}</a><div><h2><a href=\"/projects/{}\" data-vt-title=\"{}\">{}</a></h2><p>{}</p><a class=\"text-link\" href=\"/projects/{}\">Read more <span aria-hidden=\"true\">→</span></a></div></article>",
+            slug,
+            slug, // Dynamic ID passed safely via image data attribute
             project_image(&project),
-            escape_html(&project.slug),
+            slug,
+            slug, // Dynamic ID passed safely via title data attribute
             escape_html(&project.title),
             escape_html(&project.summary),
-            escape_html(&project.slug),
+            slug,
         )
         .unwrap();
     }
@@ -365,10 +415,14 @@ async fn project_detail(
     let Some(project) = project.filter(|project| project.published) else {
         return Ok(not_found());
     };
+
+    let escaped_slug = escape_html(&project.slug);
     let content = format!(
-        "<article class=\"project-detail\"><a class=\"text-link\" href=\"/projects\">&larr; All projects</a><header><p class=\"eyebrow\">Project</p><h1>{}</h1><p class=\"lede\">{}</p></header>{}{}</article>",
+        "<article class=\"project-detail\"><a class=\"text-link\" href=\"/projects\">← All projects</a><header><p class=\"eyebrow\">Project</p><h1 data-vt-title=\"{}\">{}</h1><p class=\"lede\">{}</p></header><div data-vt-img=\"{}\" style=\"display: block;\">{}</div>{}</article>",
+        escaped_slug, // Unique title data attribute
         escape_html(&project.title),
         escape_html(&project.summary),
+        escaped_slug, // Unique image data attribute
         project_image(&project),
         markdown_to_html(&project.body),
     );

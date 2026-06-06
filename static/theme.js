@@ -35,3 +35,57 @@ document.addEventListener("DOMContentLoaded", () => {
 
   updateToggle();
 });
+
+// static/theme.js (Updated engine block)
+
+let hasRunViewTransitionsEngine = false;
+
+const runViewTransitionsEngine = () => {
+  if (hasRunViewTransitionsEngine) return;
+
+  // 1. Map images
+  document.querySelectorAll("[data-vt-img]").forEach((el) => {
+    const slug = el.getAttribute("data-vt-img");
+    if (slug) {
+      el.style.viewTransitionName = `img-${slug}`;
+      el.style.viewTransitionClass = "fluid-image";
+    }
+  });
+
+  // 2. Map titles
+  document.querySelectorAll("[data-vt-title]").forEach((el) => {
+    const slug = el.getAttribute("data-vt-title");
+    if (slug) {
+      el.style.viewTransitionName = `title-${slug}`;
+      el.style.viewTransitionClass = "fluid-text";
+    }
+  });
+
+  hasRunViewTransitionsEngine = true;
+};
+
+// 3. FIXED FOR IN-PAGE LINKS: Intercept clicks on links going back to projects
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("a");
+  if (!link) return;
+
+  const href = link.getAttribute("href");
+  
+  // If clicking an in-page link to the list page or a specific project page
+  if (href === "/projects" || href?.startsWith("/projects") || href?.endsWith("/projects")) {
+    // Force the current page's transition names to stay locked in right before the native navigation fires
+    runViewTransitionsEngine();
+  }
+});
+
+// Run immediately on parse
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", runViewTransitionsEngine);
+} else {
+  runViewTransitionsEngine();
+}
+
+// Re-fire for browser cache back/forward navigations
+window.addEventListener("pageshow", () => {
+  runViewTransitionsEngine();
+});
