@@ -35,7 +35,8 @@ use utils::random_token;
 use axum::http::{HeaderMap, HeaderValue, header};
 #[cfg(test)]
 use render::{
-    absolute_url, asset_url, footer_link_html, footer_link_icon, layout_parts, markdown_to_html,
+    LayoutContext, absolute_url, asset_url, footer_link_html, footer_link_icon, layout_parts,
+    markdown_to_html,
 };
 #[cfg(test)]
 use security::has_same_origin;
@@ -223,19 +224,19 @@ mod tests {
 
     #[test]
     fn public_footer_icons_load_the_local_icon_stylesheet() {
-        let page = layout_parts(
-            "Home",
-            "Example | Home",
-            "Description",
-            "https://example.com/",
-            "",
-            "Example",
-            "Example",
-            "",
-            false,
-            "",
-            r#"<a href="https://github.com/example"><i class="fa fa-github footer-link-icon"></i>GitHub</a>"#,
-        );
+        let page = layout_parts(LayoutContext {
+            title: "Home",
+            document_title: "Example | Home",
+            description: "Description",
+            canonical: "https://example.com/",
+            social_image: "",
+            site_title: "Example",
+            author: "Example",
+            content: "",
+            admin: false,
+            copyright: "",
+            links: r#"<a href="https://github.com/example"><i class="fa fa-github footer-link-icon"></i>GitHub</a>"#,
+        });
         assert!(page.contains("/assets/vendor/font-awesome/css/font-awesome.min.css"));
     }
 

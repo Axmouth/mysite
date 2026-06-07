@@ -82,21 +82,35 @@ pub(crate) fn project_form(
     )
 }
 
+pub(crate) struct LayoutContext<'a> {
+    pub(crate) title: &'a str,
+    pub(crate) document_title: &'a str,
+    pub(crate) description: &'a str,
+    pub(crate) canonical: &'a str,
+    pub(crate) social_image: &'a str,
+    pub(crate) site_title: &'a str,
+    pub(crate) author: &'a str,
+    pub(crate) content: &'a str,
+    pub(crate) admin: bool,
+    pub(crate) copyright: &'a str,
+    pub(crate) links: &'a str,
+}
+
 pub(crate) fn layout(title: &str, content: &str, admin: bool) -> String {
     let document_title = format!("{title} | George");
-    layout_parts(
+    layout_parts(LayoutContext {
         title,
-        &document_title,
-        "Private site administration.",
-        "",
-        "",
-        "George",
-        "George",
+        document_title: &document_title,
+        description: "Private site administration.",
+        canonical: "",
+        social_image: "",
+        site_title: "George",
+        author: "George",
         content,
         admin,
-        "&copy; George",
-        "",
-    )
+        copyright: "&copy; George",
+        links: "",
+    })
 }
 
 pub(crate) fn site_layout(
@@ -129,35 +143,35 @@ pub(crate) fn site_layout(
         }
         links.push_str(&footer_link_html(&link));
     }
-    Ok(layout_parts(
+    Ok(layout_parts(LayoutContext {
         title,
-        &document_title,
+        document_title: &document_title,
         description,
-        &canonical,
-        &image,
-        &site_title,
-        &author,
+        canonical: &canonical,
+        social_image: &image,
+        site_title: &site_title,
+        author: &author,
         content,
         admin,
-        &copyright,
-        &links,
-    ))
+        copyright: &copyright,
+        links: &links,
+    }))
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn layout_parts(
-    title: &str,
-    document_title: &str,
-    description: &str,
-    canonical: &str,
-    social_image: &str,
-    site_title: &str,
-    author: &str,
-    content: &str,
-    admin: bool,
-    copyright: &str,
-    links: &str,
-) -> String {
+pub(crate) fn layout_parts(context: LayoutContext<'_>) -> String {
+    let LayoutContext {
+        title,
+        document_title,
+        description,
+        canonical,
+        social_image,
+        site_title,
+        author,
+        content,
+        admin,
+        copyright,
+        links,
+    } = context;
     let admin_class = if admin { " admin-page" } else { "" };
     let robots = if admin {
         "noindex, nofollow"
