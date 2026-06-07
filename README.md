@@ -57,6 +57,21 @@ The smoke tests cover health checks, security headers, search metadata,
 `robots.txt`, `sitemap.xml`, origin checks, admin login, settings changes,
 project publishing, Markdown rendering, image uploads, and local editor assets.
 
+## Code structure
+
+The Rust server starts in `src/main.rs`. Route handlers still live there, while
+shared pieces are split into focused modules:
+
+| Path | Purpose |
+| --- | --- |
+| `src/db.rs` | SQLite setup and read helpers |
+| `src/models.rs` | Shared state, records, and error type |
+| `src/render.rs` | Markdown rendering, page layout, icons, and error pages |
+| `src/security.rs` | Security headers, origin checks, and admin-cookie checks |
+| `src/template.rs` | Small placeholder renderer for template files |
+| `src/utils.rs` | Slugs, escaping, upload validation, and other helpers |
+| `templates/` | HTML templates used by the server |
+
 ## Continuous integration
 
 GitHub Actions runs the verification suite for pull requests and pushes to

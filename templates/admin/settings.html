@@ -1,0 +1,30 @@
+<section class="admin-shell">
+  <a class="text-link" href="/admin">&larr; Admin</a>
+  <h1>Site settings</h1>
+  <form method="post" class="panel form-stack">
+    <label>Site title<input name="site_title" value="{{site_title}}" required></label>
+    <label>
+      Homepage SEO title
+      <span class="hint">(used as the complete browser and search-result title)</span>
+      <input name="home_seo_title" value="{{home_seo_title}}" required>
+    </label>
+    <label>Author name<input name="author_name" value="{{author_name}}" required></label>
+    <label>Search description<textarea name="site_description" rows="3" required>{{site_description}}</textarea></label>
+    <label>
+      Social image URL
+      <span class="hint">(optional; used when sharing the site)</span>
+      <input name="social_image" value="{{social_image}}">
+    </label>
+    <label>Copyright claim<input name="copyright_claim" value="{{copyright}}" required></label>
+    <button type="submit">Save settings</button>
+  </form>
+  <div class="panel settings-panel">
+    <h2>Footer links</h2>
+    <ul class="admin-link-list">{{links}}</ul>
+    <form method="post" action="/admin/links" class="inline-form">
+      <label>Label<input name="label" placeholder="GitHub" required></label>
+      <label>URL<input name="url" type="url" placeholder="https://github.com/..." required></label>
+      <button type="submit">Add link</button>
+    </form>
+  </div>
+</section>

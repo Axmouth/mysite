@@ -1,0 +1,11 @@
+<article class="image-card">
+  <img src="{{path}}" alt="">
+  <div>
+    <strong>{{name}}</strong>
+    <code>{{path}}</code>
+    <button class="secondary copy-image" type="button" data-copy="{{path}}">Copy URL</button>
+    <form method="post" action="/admin/images/{{id}}/delete">
+      <button class="danger" type="submit">Delete</button>
+    </form>
+  </div>
+</article>

@@ -1,0 +1,12 @@
+<section class="admin-shell">
+  <a class="text-link" href="/admin">&larr; Admin</a>
+  <h1>Edit homepage</h1>
+  <form method="post" class="panel form-stack">
+    <label>
+      Homepage Markdown
+      <textarea class="markdown-editor" data-image-upload="/admin/home/images" name="markdown" rows="20" required>{{markdown}}</textarea>
+    </label>
+    <button type="submit">Save homepage</button>
+  </form>
+  {{images}}
+</section>

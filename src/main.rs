@@ -9,20 +9,30 @@ use std::{
 
 use axum::{
     Router,
-    body::Body,
     extract::{DefaultBodyLimit, Form, Multipart, Path, State},
-    http::{HeaderMap, HeaderValue, Request, StatusCode, header},
-    middleware::{self, Next},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware,
     response::{Html, IntoResponse, Json, Redirect, Response},
     routing::{get, post},
 };
-use pulldown_cmark::{Event, Options, Parser, html};
-use rand::{Rng, distr::Alphanumeric};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use tokio::{fs, net::TcpListener};
 use tower_http::services::ServeDir;
 use uuid::Uuid;
+
+mod db;
+mod models;
+mod render;
+mod security;
+mod template;
+mod utils;
+
+use db::*;
+pub(crate) use models::*;
+use render::*;
+use security::*;
+use utils::*;
 
 const DEFAULT_HOME: &str = r#"# Hello, I'm George.
 
@@ -30,70 +40,7 @@ This is a small corner of the web for my work and notes.
 
 [See my projects](/projects)
 "#;
-const ASSET_VERSION: &str = "20260602-1";
-
-struct AppState {
-    db: Mutex<Connection>,
-    admin_password: String,
-    session_token: String,
-    uploads_dir: PathBuf,
-    secure_cookie: bool,
-    site_url: String,
-    login_failures: Mutex<VecDeque<Instant>>,
-}
-
-#[derive(Clone)]
-struct Project {
-    id: i64,
-    slug: String,
-    title: String,
-    summary: String,
-    body: String,
-    image_path: String,
-    published: bool,
-}
-
-struct FooterLink {
-    id: i64,
-    label: String,
-    url: String,
-}
-
-struct OwnedImage {
-    id: i64,
-    file_name: String,
-    original_name: String,
-}
-
-#[derive(Debug)]
-struct AppError(String);
-
-impl std::fmt::Display for AppError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for AppError {}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        eprintln!("request failed: {}", self.0);
-        internal_server_error()
-    }
-}
-
-impl From<rusqlite::Error> for AppError {
-    fn from(error: rusqlite::Error) -> Self {
-        Self(error.to_string())
-    }
-}
-
-impl From<std::io::Error> for AppError {
-    fn from(error: std::io::Error) -> Self {
-        Self(error.to_string())
-    }
-}
+pub(crate) const ASSET_VERSION: &str = "20260602-1";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -159,160 +106,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn initialize_database(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch(
-        r#"
-        PRAGMA journal_mode = WAL;
-        PRAGMA busy_timeout = 5000;
-
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            slug TEXT NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            summary TEXT NOT NULL DEFAULT '',
-            body TEXT NOT NULL DEFAULT '',
-            image_path TEXT NOT NULL DEFAULT '',
-            published INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS footer_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            label TEXT NOT NULL,
-            url TEXT NOT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS images (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_name TEXT NOT NULL UNIQUE,
-            original_name TEXT NOT NULL,
-            owner_type TEXT NOT NULL CHECK (owner_type IN ('home', 'project')),
-            owner_id INTEGER,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-        "#,
-    )?;
-    db.execute(
-        "INSERT OR IGNORE INTO settings (key, value) VALUES ('home_markdown', ?1)",
-        [DEFAULT_HOME],
-    )?;
-    db.execute(
-        "INSERT OR IGNORE INTO settings (key, value) VALUES ('copyright_claim', ?1)",
-        ["© 2026 George. All rights reserved."],
-    )?;
-    for (key, value) in [
-        ("site_title", "George"),
-        (
-            "home_seo_title",
-            "George | Personal Website and Project Archive",
-        ),
-        (
-            "site_description",
-            "Personal website and project archive for George.",
-        ),
-        ("author_name", "George"),
-        ("social_image", ""),
-    ] {
-        db.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?1, ?2)",
-            params![key, value],
-        )?;
-    }
-    Ok(())
-}
-
-async fn security_headers1(mut request: Request<Body>, next: Next) -> Response {
-    let is_admin = request.uri().path().starts_with("/admin");
-    if is_admin
-        && request.method() == axum::http::Method::POST
-        && request.uri().path() != "/admin/login"
-        && !has_same_origin(request.headers())
-    {
-        return (StatusCode::FORBIDDEN, "Cross-origin admin request rejected").into_response();
-    }
-
-    // Generate a secure, randomized token for this single page load
-    let nonce = random_token()[0..16].to_string();
-    request.extensions_mut().insert(nonce.clone());
-
-    let mut response = next.run(request).await;
-    let headers = response.headers_mut();
-
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
-    headers.insert(
-        header::HeaderName::from_static("x-frame-options"),
-        HeaderValue::from_static("DENY"),
-    );
-
-    // Inject the generated nonce into style-src and script-src
-    let csp = format!(
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'nonce-{}'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
-        nonce
-    );
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_str(&csp).unwrap(),
-    );
-
-    if is_admin {
-        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    }
-    response
-}
-
-async fn security_headers(request: Request<Body>, next: Next) -> Response {
-    let is_admin = request.uri().path().starts_with("/admin");
-    if is_admin
-        && request.method() == axum::http::Method::POST
-        && request.uri().path() != "/admin/login"
-        && !has_same_origin(request.headers())
-    {
-        return (StatusCode::FORBIDDEN, "Cross-origin admin request rejected").into_response();
-    }
-    let mut response = next.run(request).await;
-    let headers = response.headers_mut();
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
-    headers.insert(
-        header::HeaderName::from_static("x-frame-options"),
-        HeaderValue::from_static("DENY"),
-    );
-    headers.insert(
-        header::HeaderName::from_static("permissions-policy"),
-        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
-    );
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
-            ),
-    );
-    if is_admin {
-        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    }
-    response
-}
-
 async fn cleanup_orphaned_uploads(db: &Connection, uploads_dir: &FilePath) -> Result<(), AppError> {
     let orphaned = {
         let mut statement = db.prepare(
@@ -376,26 +169,23 @@ async fn home(State(state): State<Arc<AppState>>) -> Result<Html<String>, AppErr
 
 async fn project_list(State(state): State<Arc<AppState>>) -> Result<Html<String>, AppError> {
     let projects = list_projects(&state, true)?;
-    let mut content = String::from(
-        "<header class=\"page-header\"><p class=\"eyebrow\">Archive</p><h1>Projects</h1><p>Things I have built, explored, and learned from.</p></header><div class=\"project-grid\">",
-    );
+    let mut cards = String::new();
     for project in projects {
         let slug = escape_html(&project.slug);
-        write!(
-            content,
-            "<article class=\"project-card\"><a href=\"/projects/{}\" data-vt-img=\"{}\" style=\"display: block;\">{}</a><div><h2><a href=\"/projects/{}\" data-vt-title=\"{}\">{}</a></h2><p>{}</p><a class=\"text-link\" href=\"/projects/{}\">Read more <span aria-hidden=\"true\">→</span></a></div></article>",
-            slug,
-            slug, // Dynamic ID passed safely via image data attribute
-            project_image(&project),
-            slug,
-            slug, // Dynamic ID passed safely via title data attribute
-            escape_html(&project.title),
-            escape_html(&project.summary),
-            slug,
-        )
-        .unwrap();
+        cards.push_str(&template::render(
+            include_str!("../templates/public/project_card.html"),
+            &[
+                ("slug", slug),
+                ("image", project_image(&project)),
+                ("title", escape_html(&project.title)),
+                ("summary", escape_html(&project.summary)),
+            ],
+        ));
     }
-    content.push_str("</div>");
+    let content = template::render(
+        include_str!("../templates/public/project_list.html"),
+        &[("projects", cards)],
+    );
     Ok(Html(site_layout(
         &state,
         "Projects",
@@ -417,14 +207,15 @@ async fn project_detail(
     };
 
     let escaped_slug = escape_html(&project.slug);
-    let content = format!(
-        "<article class=\"project-detail\"><a class=\"text-link\" href=\"/projects\">← All projects</a><header><p class=\"eyebrow\">Project</p><h1 data-vt-title=\"{}\">{}</h1><p class=\"lede\">{}</p></header><div data-vt-img=\"{}\" style=\"display: block;\">{}</div>{}</article>",
-        escaped_slug, // Unique title data attribute
-        escape_html(&project.title),
-        escape_html(&project.summary),
-        escaped_slug, // Unique image data attribute
-        project_image(&project),
-        markdown_to_html(&project.body),
+    let content = template::render(
+        include_str!("../templates/public/project_detail.html"),
+        &[
+            ("slug", escaped_slug),
+            ("title", escape_html(&project.title)),
+            ("summary", escape_html(&project.summary)),
+            ("image", project_image(&project)),
+            ("body", markdown_to_html(&project.body)),
+        ],
     );
     Ok(Html(site_layout(
         &state,
@@ -483,7 +274,7 @@ async fn test_internal_server_error() -> Response {
 async fn login_page() -> Html<String> {
     Html(layout(
         "Admin login",
-        r#"<section class="admin-narrow"><p class="eyebrow">Private area</p><h1>Admin login</h1><form method="post" class="panel form-stack"><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button type="submit">Log in</button></form></section>"#,
+        include_str!("../templates/admin/login.html"),
         false,
     ))
 }
@@ -518,7 +309,7 @@ async fn login(State(state): State<Arc<AppState>>, Form(form): Form<LoginForm>) 
             StatusCode::UNAUTHORIZED,
             Html(layout(
                 "Admin login",
-                r#"<section class="admin-narrow"><h1>Admin login</h1><p class="error">Incorrect password.</p><a class="text-link" href="/admin/login">Try again</a></section>"#,
+                include_str!("../templates/admin/login_error.html"),
                 false,
             )),
         )
@@ -557,19 +348,26 @@ async fn admin_dashboard(
     let projects = list_projects(&state, false)?;
     let mut rows = String::new();
     for project in projects {
-        write!(
-            rows,
-            "<tr><td><a href=\"/admin/projects/{}/edit\">{}</a></td><td>{}</td><td class=\"actions\"><a class=\"button secondary\" href=\"/admin/projects/{}/edit\">Edit</a><form method=\"post\" action=\"/admin/projects/{}/delete\"><button class=\"danger\" type=\"submit\">Delete</button></form></td></tr>",
-            project.id,
-            escape_html(&project.title),
-            if project.published { "Published" } else { "Draft" },
-            project.id,
-            project.id,
-        )
-        .unwrap();
+        rows.push_str(&template::render(
+            include_str!("../templates/admin/project_row.html"),
+            &[
+                ("id", project.id.to_string()),
+                ("title", escape_html(&project.title)),
+                (
+                    "status",
+                    if project.published {
+                        "Published"
+                    } else {
+                        "Draft"
+                    }
+                    .into(),
+                ),
+            ],
+        ));
     }
-    let content = format!(
-        r#"<section class="admin-shell"><div class="admin-heading"><div><p class="eyebrow">Private area</p><h1>Site admin</h1></div><form method="post" action="/admin/logout"><button class="secondary" type="submit">Log out</button></form></div><nav class="admin-nav"><a href="/admin/home">Edit homepage</a><a href="/admin/projects/new">New project</a><a href="/admin/settings">Site settings</a></nav><div class="panel"><h2>Projects</h2><div class="table-wrap"><table><thead><tr><th>Title</th><th>Status</th><th></th></tr></thead><tbody>{rows}</tbody></table></div></div></section>"#
+    let content = template::render(
+        include_str!("../templates/admin/dashboard.html"),
+        &[("rows", rows)],
     );
     Ok(Html(layout("Admin", &content, true)).into_response())
 }
@@ -589,23 +387,26 @@ async fn admin_settings(
     let social_image = setting(&state, "social_image")?;
     let mut links_html = String::new();
     for link in list_footer_links(&state)? {
-        write!(
-            links_html,
-            r#"<li><a href="{url}">{label}</a><form method="post" action="/admin/links/{id}/delete"><button class="danger" type="submit">Delete</button></form></li>"#,
-            id = link.id,
-            label = escape_html(&link.label),
-            url = escape_html(&link.url),
-        )
-        .unwrap();
+        links_html.push_str(&template::render(
+            include_str!("../templates/admin/settings_link.html"),
+            &[
+                ("id", link.id.to_string()),
+                ("label", escape_html(&link.label)),
+                ("url", escape_html(&link.url)),
+            ],
+        ));
     }
-    let content = format!(
-        r#"<section class="admin-shell"><a class="text-link" href="/admin">&larr; Admin</a><h1>Site settings</h1><form method="post" class="panel form-stack"><label>Site title<input name="site_title" value="{}" required></label><label>Homepage SEO title <span class="hint">(used as the complete browser and search-result title)</span><input name="home_seo_title" value="{}" required></label><label>Author name<input name="author_name" value="{}" required></label><label>Search description<textarea name="site_description" rows="3" required>{}</textarea></label><label>Social image URL <span class="hint">(optional; used when sharing the site)</span><input name="social_image" value="{}"></label><label>Copyright claim<input name="copyright_claim" value="{}" required></label><button type="submit">Save settings</button></form><div class="panel settings-panel"><h2>Footer links</h2><ul class="admin-link-list">{links_html}</ul><form method="post" action="/admin/links" class="inline-form"><label>Label<input name="label" placeholder="GitHub" required></label><label>URL<input name="url" type="url" placeholder="https://github.com/..." required></label><button type="submit">Add link</button></form></div></section>"#,
-        escape_html(&site_title),
-        escape_html(&home_seo_title),
-        escape_html(&author_name),
-        escape_html(&site_description),
-        escape_html(&social_image),
-        escape_html(&copyright),
+    let content = template::render(
+        include_str!("../templates/admin/settings.html"),
+        &[
+            ("site_title", escape_html(&site_title)),
+            ("home_seo_title", escape_html(&home_seo_title)),
+            ("author_name", escape_html(&author_name)),
+            ("site_description", escape_html(&site_description)),
+            ("social_image", escape_html(&social_image)),
+            ("copyright", escape_html(&copyright)),
+            ("links", links_html),
+        ],
     );
     Ok(Html(layout("Footer settings", &content, true)).into_response())
 }
@@ -712,10 +513,12 @@ async fn admin_home(
         |row| row.get::<_, String>(0),
     )?;
     let images = list_images(&state, "home", None)?;
-    let content = format!(
-        r#"<section class="admin-shell"><a class="text-link" href="/admin">&larr; Admin</a><h1>Edit homepage</h1><form method="post" class="panel form-stack"><label>Homepage Markdown<textarea class="markdown-editor" data-image-upload="/admin/home/images" name="markdown" rows="20" required>{}</textarea></label><button type="submit">Save homepage</button></form>{}</section>"#,
-        escape_html(&markdown),
-        image_library(&images),
+    let content = template::render(
+        include_str!("../templates/admin/home_form.html"),
+        &[
+            ("markdown", escape_html(&markdown)),
+            ("images", image_library(&images)),
+        ],
     );
     Ok(Html(layout("Edit homepage", &content, true)).into_response())
 }
@@ -998,596 +801,6 @@ async fn delete_image(
             .execute("DELETE FROM images WHERE id = ?1", [id])?;
     }
     Ok(Redirect::to("/admin").into_response())
-}
-
-fn list_projects(state: &AppState, only_published: bool) -> Result<Vec<Project>, AppError> {
-    let db = state.db.lock().unwrap();
-    let query = if only_published {
-        "SELECT id, slug, title, summary, body, image_path, published FROM projects WHERE published = 1 ORDER BY created_at DESC"
-    } else {
-        "SELECT id, slug, title, summary, body, image_path, published FROM projects ORDER BY created_at DESC"
-    };
-    let mut statement = db.prepare(query)?;
-    let projects = statement
-        .query_map([], project_from_row)?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(projects)
-}
-
-fn find_project_by_slug(state: &AppState, slug: &str) -> Result<Option<Project>, AppError> {
-    let project = state
-        .db
-        .lock()
-        .unwrap()
-        .query_row(
-            "SELECT id, slug, title, summary, body, image_path, published FROM projects WHERE slug = ?1",
-            [slug],
-            project_from_row,
-        )
-        .optional()?;
-    Ok(project)
-}
-
-fn find_project_by_id(state: &AppState, id: i64) -> Result<Option<Project>, AppError> {
-    let project = state
-        .db
-        .lock()
-        .unwrap()
-        .query_row(
-            "SELECT id, slug, title, summary, body, image_path, published FROM projects WHERE id = ?1",
-            [id],
-            project_from_row,
-        )
-        .optional()?;
-    Ok(project)
-}
-
-fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
-    Ok(Project {
-        id: row.get(0)?,
-        slug: row.get(1)?,
-        title: row.get(2)?,
-        summary: row.get(3)?,
-        body: row.get(4)?,
-        image_path: row.get(5)?,
-        published: row.get(6)?,
-    })
-}
-
-fn list_images(
-    state: &AppState,
-    owner_type: &str,
-    owner_id: Option<i64>,
-) -> Result<Vec<OwnedImage>, AppError> {
-    let db = state.db.lock().unwrap();
-    let mut statement = db.prepare(
-        "SELECT id, file_name, original_name FROM images WHERE owner_type = ?1 AND owner_id IS ?2 ORDER BY created_at DESC",
-    )?;
-    let images = statement
-        .query_map(params![owner_type, owner_id], |row| {
-            Ok(OwnedImage {
-                id: row.get(0)?,
-                file_name: row.get(1)?,
-                original_name: row.get(2)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(images)
-}
-
-fn image_library(images: &[OwnedImage]) -> String {
-    let mut cards = String::new();
-    for image in images {
-        let path = format!("/uploads/{}", image.file_name);
-        write!(
-            cards,
-            r#"<article class="image-card"><img src="{path}" alt=""><div><strong>{name}</strong><code>{path}</code><button class="secondary copy-image" type="button" data-copy="{path}">Copy URL</button><form method="post" action="/admin/images/{id}/delete"><button class="danger" type="submit">Delete</button></form></div></article>"#,
-            id = image.id,
-            name = escape_html(&image.original_name),
-            path = escape_html(&path),
-        )
-        .unwrap();
-    }
-    format!(
-        r#"<section class="image-library"><div><h2>Page images</h2><p>Paste, drop, or use the image button in the editor to upload. Copy a URL here for the project cover image.</p></div><div class="image-grid">{cards}</div></section>"#
-    )
-}
-
-fn project_form(
-    title: &str,
-    action: &str,
-    project: Option<&Project>,
-    images: &[OwnedImage],
-) -> String {
-    let empty = Project {
-        id: 0,
-        slug: String::new(),
-        title: String::new(),
-        summary: String::new(),
-        body: String::new(),
-        image_path: String::new(),
-        published: false,
-    };
-    let project = project.unwrap_or(&empty);
-    let image_upload = if project.id == 0 {
-        String::new()
-    } else {
-        format!("/admin/projects/{}/images", project.id)
-    };
-    let upload_note = if project.id == 0 {
-        "<p class=\"hint\">Save this project once to enable pasted and dropped image uploads.</p>"
-    } else {
-        ""
-    };
-    format!(
-        r#"<section class="admin-shell"><a class="text-link" href="/admin">&larr; Admin</a><h1>{}</h1><form method="post" action="{}" class="panel form-stack"><label>Title<input name="title" value="{}" required></label><label>Slug <span class="hint">(leave blank to generate from the title)</span><input name="slug" value="{}"></label><label>Summary<textarea name="summary" rows="3">{}</textarea></label><label>Cover image URL <span class="hint">(optional; copy one from the page image list)</span><input name="image_path" value="{}"></label><label>Body Markdown<textarea class="markdown-editor" data-image-upload="{}" name="body" rows="16">{}</textarea></label>{}<label class="switch"><input type="checkbox" name="published" {}><span class="switch-track" aria-hidden="true"></span><span>Published</span></label><button type="submit">Save project</button></form>{}</section>"#,
-        escape_html(title),
-        escape_html(action),
-        escape_html(&project.title),
-        escape_html(&project.slug),
-        escape_html(&project.summary),
-        escape_html(&project.image_path),
-        escape_html(&image_upload),
-        escape_html(&project.body),
-        upload_note,
-        if project.published { "checked" } else { "" },
-        image_library(images),
-    )
-}
-
-fn layout(title: &str, content: &str, admin: bool) -> String {
-    let document_title = format!("{title} | George");
-    layout_parts(
-        title,
-        &document_title,
-        "Private site administration.",
-        "",
-        "",
-        "George",
-        "George",
-        content,
-        admin,
-        "&copy; George",
-        "",
-    )
-}
-
-fn site_layout(
-    state: &AppState,
-    title: &str,
-    description: &str,
-    path: &str,
-    social_image: Option<&str>,
-    content: &str,
-    admin: bool,
-) -> Result<String, AppError> {
-    let copyright = escape_html(&setting(state, "copyright_claim")?);
-    let site_title = setting(state, "site_title")?;
-    let author = setting(state, "author_name")?;
-    let configured_social_image = setting(state, "social_image")?;
-    let image = absolute_url(
-        &state.site_url,
-        social_image.unwrap_or(&configured_social_image),
-    );
-    let canonical = format!("{}{}", state.site_url, path);
-    let document_title = if path == "/" {
-        title.to_string()
-    } else {
-        format!("{title} | {site_title}")
-    };
-    let mut links = String::new();
-    for link in list_footer_links(state)? {
-        if !is_http_url(&link.url) {
-            continue;
-        }
-        links.push_str(&footer_link_html(&link));
-    }
-    Ok(layout_parts(
-        title,
-        &document_title,
-        description,
-        &canonical,
-        &image,
-        &site_title,
-        &author,
-        content,
-        admin,
-        &copyright,
-        &links,
-    ))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn layout_parts(
-    title: &str,
-    document_title: &str,
-    description: &str,
-    canonical: &str,
-    social_image: &str,
-    site_title: &str,
-    author: &str,
-    content: &str,
-    admin: bool,
-    copyright: &str,
-    links: &str,
-) -> String {
-    let admin_class = if admin { " admin-page" } else { "" };
-    let robots = if admin {
-        "noindex, nofollow"
-    } else {
-        "index, follow"
-    };
-    let image_meta = if social_image.is_empty() {
-        String::new()
-    } else {
-        let image = escape_html(social_image);
-        format!(
-            r#"<meta property="og:image" content="{image}"><meta name="twitter:card" content="summary_large_image">"#
-        )
-    };
-    let canonical_link = if canonical.is_empty() {
-        String::new()
-    } else {
-        format!(
-            r#"<link rel="canonical" href="{}">"#,
-            escape_html(canonical)
-        )
-    };
-    let public_meta = if canonical.is_empty() {
-        String::new()
-    } else {
-        format!(
-            r#"<meta property="og:url" content="{}">{}{}<script type="application/ld+json">{{"@context":"https://schema.org","@type":"WebSite","name":"{}","url":"{}","author":{{"@type":"Person","name":"{}"}}}}</script>"#,
-            escape_html(canonical),
-            image_meta,
-            canonical_link,
-            json_escape(site_title),
-            json_escape(canonical),
-            json_escape(author),
-        )
-    };
-    let icon_assets = if admin || !links.is_empty() {
-        format!(
-            r#"<link rel="stylesheet" href="{}">"#,
-            asset_url("/assets/vendor/font-awesome/css/font-awesome.min.css")
-        )
-    } else {
-        String::new()
-    };
-    let editor_assets = if admin {
-        format!(
-            r#"<link rel="stylesheet" href="{}"><script src="{}" defer></script><script src="{}" defer></script>"#,
-            asset_url("/assets/vendor/easymde/easymde.min.css"),
-            asset_url("/assets/vendor/easymde/easymde.min.js"),
-            asset_url("/assets/editor.js"),
-        )
-    } else {
-        String::new()
-    };
-    let theme_asset = asset_url("/assets/theme.js");
-    let style_asset = asset_url("/assets/style.css");
-    format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{}</title><meta name="description" content="{}"><meta name="author" content="{}"><meta name="robots" content="{}"><meta property="og:type" content="website"><meta property="og:title" content="{}"><meta property="og:description" content="{}"><meta name="twitter:card" content="summary">{}<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2328624f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='sans-serif' font-size='38' font-weight='700' fill='white'%3EG%3C/text%3E%3C/svg%3E"><script src="{}"></script><link rel="stylesheet" href="{}">{}{}</head><body class="{}"><div class="site-frame"><nav class="site-nav"><a class="brand" href="/">{}</a><div><a href="/projects">Projects</a>{}<button class="theme-toggle" type="button"><span class="sun-icon" aria-hidden="true">&#9788;</span><span class="moon-icon" aria-hidden="true">&#9790;</span></button></div></nav><main>{}</main><footer><span>{}</span><div>{}</div></footer></div></body></html>"#,
-        escape_html(document_title),
-        escape_html(description),
-        escape_html(author),
-        robots,
-        escape_html(title),
-        escape_html(description),
-        public_meta,
-        theme_asset,
-        style_asset,
-        icon_assets,
-        editor_assets,
-        admin_class,
-        escape_html(site_title),
-        if admin {
-            r#"<a href="/admin">Admin</a>"#
-        } else {
-            ""
-        },
-        content,
-        copyright,
-        links,
-    )
-}
-
-fn setting(state: &AppState, key: &str) -> Result<String, AppError> {
-    Ok(state.db.lock().unwrap().query_row(
-        "SELECT value FROM settings WHERE key = ?1",
-        [key],
-        |row| row.get(0),
-    )?)
-}
-
-fn list_footer_links(state: &AppState) -> Result<Vec<FooterLink>, AppError> {
-    let db = state.db.lock().unwrap();
-    let mut statement =
-        db.prepare("SELECT id, label, url FROM footer_links ORDER BY sort_order, id")?;
-    let links = statement
-        .query_map([], |row| {
-            Ok(FooterLink {
-                id: row.get(0)?,
-                label: row.get(1)?,
-                url: row.get(2)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(links)
-}
-
-fn markdown_to_html(markdown: &str) -> String {
-    let parser = Parser::new_ext(markdown, Options::all())
-        .filter(|event| !matches!(event, Event::Html(_) | Event::InlineHtml(_)));
-    let mut output = String::new();
-    html::push_html(&mut output, parser);
-    format!("<div class=\"prose\">{output}</div>")
-}
-
-fn has_same_origin(headers: &HeaderMap) -> bool {
-    let Some(host) = headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return false;
-    };
-    if let Some(origin) = headers.get(header::ORIGIN) {
-        return origin
-            .to_str()
-            .ok()
-            .and_then(strip_http_scheme)
-            .is_some_and(|origin_host| origin_host == host);
-    }
-    headers
-        .get(header::REFERER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(strip_http_scheme)
-        .is_some_and(|referer| referer == host || referer.starts_with(&format!("{host}/")))
-}
-
-fn strip_http_scheme(url: &str) -> Option<&str> {
-    url.strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-}
-
-fn is_http_url(url: &str) -> bool {
-    url.starts_with("https://") || url.starts_with("http://")
-}
-
-fn asset_url(path: &str) -> String {
-    format!("{path}?v={ASSET_VERSION}")
-}
-
-fn footer_link_icon(url: &str) -> &'static str {
-    let lower_url = url.to_ascii_lowercase();
-    let host = lower_url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(&lower_url)
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .rsplit('@')
-        .next()
-        .unwrap_or_default()
-        .split(':')
-        .next()
-        .unwrap_or_default()
-        .trim_start_matches("www.");
-
-    if host_matches(host, "github.com") {
-        "fa-github"
-    } else if host_matches(host, "gitlab.com") {
-        "fa-gitlab"
-    } else if host_matches(host, "bitbucket.org") {
-        "fa-bitbucket"
-    } else if host_matches(host, "linkedin.com") {
-        "fa-linkedin"
-    } else if host_matches(host, "twitter.com") || host_matches(host, "x.com") {
-        "fa-twitter"
-    } else if host_matches(host, "facebook.com") {
-        "fa-facebook"
-    } else if host_matches(host, "instagram.com") {
-        "fa-instagram"
-    } else if host_matches(host, "youtube.com") || host == "youtu.be" {
-        "fa-youtube"
-    } else if host_matches(host, "reddit.com") {
-        "fa-reddit"
-    } else if host_matches(host, "stackoverflow.com") {
-        "fa-stack-overflow"
-    } else if host_matches(host, "stackexchange.com") {
-        "fa-stack-exchange"
-    } else if host_matches(host, "news.ycombinator.com") {
-        "fa-hacker-news"
-    } else if host_matches(host, "telegram.me") || host == "t.me" {
-        "fa-telegram"
-    } else if host_matches(host, "slack.com") {
-        "fa-slack"
-    } else if host_matches(host, "whatsapp.com") || host == "wa.me" {
-        "fa-whatsapp"
-    } else if host_matches(host, "twitch.tv") {
-        "fa-twitch"
-    } else if host_matches(host, "steamcommunity.com") || host_matches(host, "steampowered.com") {
-        "fa-steam"
-    } else if host_matches(host, "medium.com") {
-        "fa-medium"
-    } else if host_matches(host, "deviantart.com") {
-        "fa-deviantart"
-    } else if host_matches(host, "spotify.com") {
-        "fa-spotify"
-    } else if host_matches(host, "soundcloud.com") {
-        "fa-soundcloud"
-    } else if host_matches(host, "codepen.io") {
-        "fa-codepen"
-    } else if host_matches(host, "producthunt.com") {
-        "fa-product-hunt"
-    } else if host_matches(host, "trello.com") {
-        "fa-trello"
-    } else if host_matches(host, "dropbox.com") {
-        "fa-dropbox"
-    } else if host_matches(host, "flickr.com") {
-        "fa-flickr"
-    } else if host_matches(host, "pinterest.com") {
-        "fa-pinterest"
-    } else if host_matches(host, "tumblr.com") {
-        "fa-tumblr"
-    } else if host_matches(host, "vimeo.com") {
-        "fa-vimeo"
-    } else if host_matches(host, "paypal.com") {
-        "fa-paypal"
-    } else if host_matches(host, "rss.com") {
-        "fa-rss"
-    } else {
-        "fa-external-link"
-    }
-}
-
-fn footer_link_html(link: &FooterLink) -> String {
-    format!(
-        r#"<a href="{}" target="_blank" rel="me noopener noreferrer"><i class="fa {} footer-link-icon" aria-hidden="true"></i>{}</a>"#,
-        escape_html(&link.url),
-        footer_link_icon(&link.url),
-        escape_html(&link.label),
-    )
-}
-
-fn host_matches(host: &str, domain: &str) -> bool {
-    host == domain || host.ends_with(&format!(".{domain}"))
-}
-
-fn absolute_url(site_url: &str, path: &str) -> String {
-    if path.starts_with('/') {
-        format!("{site_url}{path}")
-    } else {
-        path.to_string()
-    }
-}
-
-fn json_escape(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-}
-
-fn project_image(project: &Project) -> String {
-    if project.image_path.is_empty() {
-        return String::new();
-    }
-    format!(
-        "<img class=\"project-image\" src=\"{}\" alt=\"\">",
-        escape_html(&project.image_path)
-    )
-}
-
-fn is_admin(headers: &HeaderMap, state: &AppState) -> bool {
-    headers
-        .get(header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|cookies| {
-            cookies.split(';').find_map(|cookie| {
-                let (name, value) = cookie.trim().split_once('=')?;
-                (name == "admin_session").then_some(value)
-            })
-        })
-        == Some(state.session_token.as_str())
-}
-
-fn random_token() -> String {
-    rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(48)
-        .map(char::from)
-        .collect()
-}
-
-fn normalized_slug(slug: &str, title: &str) -> String {
-    let source = if slug.trim().is_empty() { title } else { slug };
-    let mut output = String::new();
-    let mut previous_dash = false;
-    for character in source.chars() {
-        if character.is_ascii_alphanumeric() {
-            output.push(character.to_ascii_lowercase());
-            previous_dash = false;
-        } else if !previous_dash && !output.is_empty() {
-            output.push('-');
-            previous_dash = true;
-        }
-    }
-    output.trim_end_matches('-').to_string()
-}
-
-fn allowed_image_extension(file_name: &str) -> Option<&'static str> {
-    match FilePath::new(file_name)
-        .extension()?
-        .to_str()?
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "jpg" | "jpeg" => Some("jpg"),
-        "png" => Some("png"),
-        "webp" => Some("webp"),
-        "gif" => Some("gif"),
-        _ => None,
-    }
-}
-
-fn image_bytes_match_extension(extension: &str, bytes: &[u8]) -> bool {
-    match extension {
-        "jpg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
-        "png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
-        "webp" => {
-            bytes.starts_with(b"RIFF") && bytes.get(8..12).is_some_and(|kind| kind == b"WEBP")
-        }
-        _ => false,
-    }
-}
-
-fn escape_html(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
-
-fn not_found() -> Response {
-    error_page(
-        StatusCode::NOT_FOUND,
-        "Not found",
-        "404",
-        "Page not found",
-        "The page you were looking for does not exist.",
-    )
-}
-
-fn internal_server_error() -> Response {
-    error_page(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Server error",
-        "500",
-        "Something went wrong",
-        "The server could not complete this request. Please try again shortly.",
-    )
-}
-
-fn error_page(
-    status: StatusCode,
-    title: &str,
-    code: &str,
-    heading: &str,
-    message: &str,
-) -> Response {
-    let content = format!(
-        r#"<section class="error-page"><p class="eyebrow">{}</p><h1>{}</h1><p>{}</p><a class="button secondary" href="/">Return home</a></section>"#,
-        escape_html(code),
-        escape_html(heading),
-        escape_html(message),
-    );
-    (status, Html(layout(title, &content, false))).into_response()
 }
 
 #[cfg(test)]

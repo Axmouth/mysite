@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{document_title}}</title>
+    <meta name="description" content="{{description}}">
+    <meta name="author" content="{{author}}">
+    <meta name="robots" content="{{robots}}">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{title}}">
+    <meta property="og:description" content="{{description}}">
+    <meta name="twitter:card" content="summary">
+    {{public_meta}}
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2328624f'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='sans-serif' font-size='38' font-weight='700' fill='white'%3EG%3C/text%3E%3C/svg%3E">
+    <script src="{{theme_asset}}"></script>
+    <link rel="stylesheet" href="{{style_asset}}">
+    {{icon_assets}}
+    {{editor_assets}}
+  </head>
+  <body class="{{body_class}}">
+    <div class="site-frame">
+      <nav class="site-nav">
+        <a class="brand" href="/">{{site_title}}</a>
+        <div>
+          <a href="/projects">Projects</a>
+          {{admin_link}}
+          <button class="theme-toggle" type="button">
+            <span class="sun-icon" aria-hidden="true">&#9788;</span>
+            <span class="moon-icon" aria-hidden="true">&#9790;</span>
+          </button>
+        </div>
+      </nav>
+      <main>{{content}}</main>
+      <footer>
+        <span>{{copyright}}</span>
+        <div>{{links}}</div>
+      </footer>
+    </div>
+  </body>
+</html>

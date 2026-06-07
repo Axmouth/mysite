@@ -1,0 +1,31 @@
+<section class="admin-shell">
+  <div class="admin-heading">
+    <div>
+      <p class="eyebrow">Private area</p>
+      <h1>Site admin</h1>
+    </div>
+    <form method="post" action="/admin/logout">
+      <button class="secondary" type="submit">Log out</button>
+    </form>
+  </div>
+  <nav class="admin-nav">
+    <a href="/admin/home">Edit homepage</a>
+    <a href="/admin/projects/new">New project</a>
+    <a href="/admin/settings">Site settings</a>
+  </nav>
+  <div class="panel">
+    <h2>Projects</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>{{rows}}</tbody>
+      </table>
+    </div>
+  </div>
+</section>

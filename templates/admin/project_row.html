@@ -1,0 +1,10 @@
+<tr>
+  <td><a href="/admin/projects/{{id}}/edit">{{title}}</a></td>
+  <td>{{status}}</td>
+  <td class="actions">
+    <a class="button secondary" href="/admin/projects/{{id}}/edit">Edit</a>
+    <form method="post" action="/admin/projects/{{id}}/delete">
+      <button class="danger" type="submit">Delete</button>
+    </form>
+  </td>
+</tr>
