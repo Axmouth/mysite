@@ -267,6 +267,40 @@ pub(crate) fn asset_url(path: &str) -> String {
     format!("{path}?v={ASSET_VERSION}")
 }
 
+const FOOTER_ICON_RULES: &[(&[&str], &str)] = &[
+    (&["github.com"], "fa-github"),
+    (&["gitlab.com"], "fa-gitlab"),
+    (&["bitbucket.org"], "fa-bitbucket"),
+    (&["linkedin.com"], "fa-linkedin"),
+    (&["twitter.com", "x.com"], "fa-twitter"),
+    (&["facebook.com"], "fa-facebook"),
+    (&["instagram.com"], "fa-instagram"),
+    (&["youtube.com", "youtu.be"], "fa-youtube"),
+    (&["reddit.com"], "fa-reddit"),
+    (&["stackoverflow.com"], "fa-stack-overflow"),
+    (&["stackexchange.com"], "fa-stack-exchange"),
+    (&["news.ycombinator.com"], "fa-hacker-news"),
+    (&["telegram.me", "t.me"], "fa-telegram"),
+    (&["slack.com"], "fa-slack"),
+    (&["whatsapp.com", "wa.me"], "fa-whatsapp"),
+    (&["twitch.tv"], "fa-twitch"),
+    (&["steamcommunity.com", "steampowered.com"], "fa-steam"),
+    (&["medium.com"], "fa-medium"),
+    (&["deviantart.com"], "fa-deviantart"),
+    (&["spotify.com"], "fa-spotify"),
+    (&["soundcloud.com"], "fa-soundcloud"),
+    (&["codepen.io"], "fa-codepen"),
+    (&["producthunt.com"], "fa-product-hunt"),
+    (&["trello.com"], "fa-trello"),
+    (&["dropbox.com"], "fa-dropbox"),
+    (&["flickr.com"], "fa-flickr"),
+    (&["pinterest.com"], "fa-pinterest"),
+    (&["tumblr.com"], "fa-tumblr"),
+    (&["vimeo.com"], "fa-vimeo"),
+    (&["paypal.com"], "fa-paypal"),
+    (&["rss.com"], "fa-rss"),
+];
+
 pub(crate) fn footer_link_icon(url: &str) -> &'static str {
     let lower_url = url.to_ascii_lowercase();
     let host = lower_url
@@ -284,71 +318,12 @@ pub(crate) fn footer_link_icon(url: &str) -> &'static str {
         .unwrap_or_default()
         .trim_start_matches("www.");
 
-    if host_matches(host, "github.com") {
-        "fa-github"
-    } else if host_matches(host, "gitlab.com") {
-        "fa-gitlab"
-    } else if host_matches(host, "bitbucket.org") {
-        "fa-bitbucket"
-    } else if host_matches(host, "linkedin.com") {
-        "fa-linkedin"
-    } else if host_matches(host, "twitter.com") || host_matches(host, "x.com") {
-        "fa-twitter"
-    } else if host_matches(host, "facebook.com") {
-        "fa-facebook"
-    } else if host_matches(host, "instagram.com") {
-        "fa-instagram"
-    } else if host_matches(host, "youtube.com") || host == "youtu.be" {
-        "fa-youtube"
-    } else if host_matches(host, "reddit.com") {
-        "fa-reddit"
-    } else if host_matches(host, "stackoverflow.com") {
-        "fa-stack-overflow"
-    } else if host_matches(host, "stackexchange.com") {
-        "fa-stack-exchange"
-    } else if host_matches(host, "news.ycombinator.com") {
-        "fa-hacker-news"
-    } else if host_matches(host, "telegram.me") || host == "t.me" {
-        "fa-telegram"
-    } else if host_matches(host, "slack.com") {
-        "fa-slack"
-    } else if host_matches(host, "whatsapp.com") || host == "wa.me" {
-        "fa-whatsapp"
-    } else if host_matches(host, "twitch.tv") {
-        "fa-twitch"
-    } else if host_matches(host, "steamcommunity.com") || host_matches(host, "steampowered.com") {
-        "fa-steam"
-    } else if host_matches(host, "medium.com") {
-        "fa-medium"
-    } else if host_matches(host, "deviantart.com") {
-        "fa-deviantart"
-    } else if host_matches(host, "spotify.com") {
-        "fa-spotify"
-    } else if host_matches(host, "soundcloud.com") {
-        "fa-soundcloud"
-    } else if host_matches(host, "codepen.io") {
-        "fa-codepen"
-    } else if host_matches(host, "producthunt.com") {
-        "fa-product-hunt"
-    } else if host_matches(host, "trello.com") {
-        "fa-trello"
-    } else if host_matches(host, "dropbox.com") {
-        "fa-dropbox"
-    } else if host_matches(host, "flickr.com") {
-        "fa-flickr"
-    } else if host_matches(host, "pinterest.com") {
-        "fa-pinterest"
-    } else if host_matches(host, "tumblr.com") {
-        "fa-tumblr"
-    } else if host_matches(host, "vimeo.com") {
-        "fa-vimeo"
-    } else if host_matches(host, "paypal.com") {
-        "fa-paypal"
-    } else if host_matches(host, "rss.com") {
-        "fa-rss"
-    } else {
-        "fa-external-link"
+    for (domains, icon) in FOOTER_ICON_RULES {
+        if domains.iter().any(|domain| host_matches(host, domain)) {
+            return icon;
+        }
     }
+    "fa-external-link"
 }
 
 pub(crate) fn footer_link_html(link: &FooterLink) -> String {
