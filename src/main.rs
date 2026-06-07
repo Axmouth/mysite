@@ -177,6 +177,14 @@ async fn project_list(State(state): State<Arc<AppState>>) -> Result<Html<String>
             &[
                 ("slug", slug),
                 ("image", project_image(&project)),
+                (
+                    "featured_label",
+                    if project.featured {
+                        r#"<p class="eyebrow">Featured</p>"#.into()
+                    } else {
+                        String::new()
+                    },
+                ),
                 ("title", escape_html(&project.title)),
                 ("summary", escape_html(&project.summary)),
             ],
@@ -361,6 +369,10 @@ async fn admin_dashboard(
                         "Draft"
                     }
                     .into(),
+                ),
+                (
+                    "featured",
+                    if project.featured { ", Featured" } else { "" }.into(),
                 ),
             ],
         ));
@@ -563,6 +575,7 @@ struct ProjectForm {
     body: String,
     image_path: String,
     published: Option<String>,
+    featured: Option<String>,
 }
 
 async fn create_project(
@@ -578,8 +591,8 @@ async fn create_project(
         return Ok((StatusCode::BAD_REQUEST, "Project slug cannot be empty").into_response());
     }
     if state.db.lock().unwrap().execute(
-        "INSERT INTO projects (slug, title, summary, body, image_path, published) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![slug, form.title, form.summary, form.body, form.image_path, form.published.is_some()],
+        "INSERT INTO projects (slug, title, summary, body, image_path, published, featured) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![slug, form.title, form.summary, form.body, form.image_path, form.published.is_some(), form.featured.is_some()],
     ).is_err() {
         return Ok((StatusCode::BAD_REQUEST, "Project slug is already in use").into_response());
     }
@@ -625,8 +638,8 @@ async fn update_project(
         return Ok((StatusCode::BAD_REQUEST, "Project slug cannot be empty").into_response());
     }
     if state.db.lock().unwrap().execute(
-        "UPDATE projects SET slug = ?1, title = ?2, summary = ?3, body = ?4, image_path = ?5, published = ?6, updated_at = CURRENT_TIMESTAMP WHERE id = ?7",
-        params![slug, form.title, form.summary, form.body, form.image_path, form.published.is_some(), id],
+        "UPDATE projects SET slug = ?1, title = ?2, summary = ?3, body = ?4, image_path = ?5, published = ?6, featured = ?7, updated_at = CURRENT_TIMESTAMP WHERE id = ?8",
+        params![slug, form.title, form.summary, form.body, form.image_path, form.published.is_some(), form.featured.is_some(), id],
     ).is_err() {
         return Ok((StatusCode::BAD_REQUEST, "Project slug is already in use").into_response());
     }

@@ -21,6 +21,7 @@ pub(crate) fn initialize_database(db: &Connection) -> rusqlite::Result<()> {
             body TEXT NOT NULL DEFAULT '',
             image_path TEXT NOT NULL DEFAULT '',
             published INTEGER NOT NULL DEFAULT 0,
+            featured INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -41,6 +42,12 @@ pub(crate) fn initialize_database(db: &Connection) -> rusqlite::Result<()> {
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         "#,
+    )?;
+    add_column_if_missing(
+        db,
+        "projects",
+        "featured",
+        "ALTER TABLE projects ADD COLUMN featured INTEGER NOT NULL DEFAULT 0",
     )?;
     db.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES ('home_markdown', ?1)",
@@ -77,9 +84,9 @@ pub(crate) fn list_projects(
 ) -> Result<Vec<Project>, AppError> {
     let db = state.db.lock().unwrap();
     let query = if only_published {
-        "SELECT id, slug, title, summary, body, image_path, published FROM projects WHERE published = 1 ORDER BY created_at DESC"
+        "SELECT id, slug, title, summary, body, image_path, published, featured FROM projects WHERE published = 1 ORDER BY featured DESC, created_at DESC"
     } else {
-        "SELECT id, slug, title, summary, body, image_path, published FROM projects ORDER BY created_at DESC"
+        "SELECT id, slug, title, summary, body, image_path, published, featured FROM projects ORDER BY featured DESC, created_at DESC"
     };
     let mut statement = db.prepare(query)?;
     let projects = statement
@@ -97,7 +104,7 @@ pub(crate) fn find_project_by_slug(
         .lock()
         .unwrap()
         .query_row(
-            "SELECT id, slug, title, summary, body, image_path, published FROM projects WHERE slug = ?1",
+            "SELECT id, slug, title, summary, body, image_path, published, featured FROM projects WHERE slug = ?1",
             [slug],
             project_from_row,
         )
@@ -111,7 +118,7 @@ pub(crate) fn find_project_by_id(state: &AppState, id: i64) -> Result<Option<Pro
         .lock()
         .unwrap()
         .query_row(
-            "SELECT id, slug, title, summary, body, image_path, published FROM projects WHERE id = ?1",
+            "SELECT id, slug, title, summary, body, image_path, published, featured FROM projects WHERE id = ?1",
             [id],
             project_from_row,
         )
@@ -128,7 +135,26 @@ fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         body: row.get(4)?,
         image_path: row.get(5)?,
         published: row.get(6)?,
+        featured: row.get(7)?,
     })
+}
+
+fn add_column_if_missing(
+    db: &Connection,
+    table: &str,
+    column: &str,
+    statement: &str,
+) -> rusqlite::Result<()> {
+    let mut columns = db.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = columns
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == column);
+    if !exists {
+        db.execute(statement, [])?;
+    }
+    Ok(())
 }
 
 pub(crate) fn list_images(

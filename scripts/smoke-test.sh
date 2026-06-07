@@ -130,11 +130,14 @@ assert_status 303 \
   --data-urlencode 'body=**Smoke body**' \
   --data-urlencode 'image_path=' \
   --data-urlencode 'published=on' \
+  --data-urlencode 'featured=on' \
   "${BASE_URL}/admin/projects/new"
 
 PROJECT_RESPONSE="$(curl --silent --show-error "${BASE_URL}/projects/smoke-project")"
 assert_contains "${PROJECT_RESPONSE}" "<strong>Smoke body</strong>"
 assert_contains "${PROJECT_RESPONSE}" "Smoke summary"
+PROJECTS_RESPONSE="$(curl --silent --show-error "${BASE_URL}/projects")"
+assert_contains "${PROJECTS_RESPONSE}" "Featured"
 
 printf '\211PNG\r\n\032\n' >"${PNG_FILE}"
 UPLOAD_RESPONSE="$(curl --silent --show-error \

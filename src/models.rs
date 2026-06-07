@@ -24,6 +24,7 @@ pub(crate) struct Project {
     pub(crate) body: String,
     pub(crate) image_path: String,
     pub(crate) published: bool,
+    pub(crate) featured: bool,
 }
 
 pub(crate) struct FooterLink {

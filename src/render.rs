@@ -43,6 +43,7 @@ pub(crate) fn project_form(
         body: String::new(),
         image_path: String::new(),
         published: false,
+        featured: false,
     };
     let project = project.unwrap_or(&empty);
     let image_upload = if project.id == 0 {
@@ -70,6 +71,10 @@ pub(crate) fn project_form(
             (
                 "published",
                 if project.published { "checked" } else { "" }.into(),
+            ),
+            (
+                "featured",
+                if project.featured { "checked" } else { "" }.into(),
             ),
             ("images", image_library(images)),
         ],

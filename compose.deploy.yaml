@@ -13,11 +13,18 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=web"
-      - "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`) || Host(`www.${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+      - "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
       - "traefik.http.routers.mysite.entrypoints=websecure"
       - "traefik.http.routers.mysite.tls.certresolver=letsencrypt"
       - "traefik.http.routers.mysite.middlewares=mysite-compress"
       - "traefik.http.middlewares.mysite-compress.compress=true"
+      - "traefik.http.routers.mysite-www.rule=Host(`www.${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+      - "traefik.http.routers.mysite-www.entrypoints=websecure"
+      - "traefik.http.routers.mysite-www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.mysite-www.middlewares=mysite-www-redirect"
+      - "traefik.http.middlewares.mysite-www-redirect.redirectregex.regex=^https://www\\.(.+)"
+      - "traefik.http.middlewares.mysite-www-redirect.redirectregex.replacement=https://$${1}"
+      - "traefik.http.middlewares.mysite-www-redirect.redirectregex.permanent=true"
       - "traefik.http.services.mysite.loadbalancer.server.port=3000"
     volumes:
       - site-data:/app/data

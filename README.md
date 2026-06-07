@@ -211,11 +211,19 @@ text responses such as HTML, CSS, and JavaScript. If another project uses port
 record for each subdomain, or add one wildcard `*.axmouth.dev` record pointing
 to the server so new subdomains work without further DNS edits.
 
-For an app that should answer both the apex hostname and its `www` alias, use
-a rule like this:
+For an app that should redirect its `www` alias to the apex hostname, use a
+second router and a redirect middleware. This lets Traefik request a valid
+certificate for `www.example.com` before returning the redirect:
 
 ```yaml
-- "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`) || Host(`www.${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+- "traefik.http.routers.mysite.rule=Host(`${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+- "traefik.http.routers.mysite-www.rule=Host(`www.${SITE_DOMAIN:?Set SITE_DOMAIN in .env}`)"
+- "traefik.http.routers.mysite-www.entrypoints=websecure"
+- "traefik.http.routers.mysite-www.tls.certresolver=letsencrypt"
+- "traefik.http.routers.mysite-www.middlewares=mysite-www-redirect"
+- "traefik.http.middlewares.mysite-www-redirect.redirectregex.regex=^https://www\\.(.+)"
+- "traefik.http.middlewares.mysite-www-redirect.redirectregex.replacement=https://$${1}"
+- "traefik.http.middlewares.mysite-www-redirect.redirectregex.permanent=true"
 ```
 
 The basic proxy template mounts the Docker socket read-only so Traefik can
