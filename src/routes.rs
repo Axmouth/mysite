@@ -23,7 +23,7 @@ use crate::{
     },
     render::{
         image_library, layout, markdown_to_html, not_found, project_form, project_image,
-        site_layout,
+        project_metadata_html, site_layout, split_project_markdown,
     },
     security::is_admin,
     template,
@@ -95,14 +95,16 @@ pub(crate) async fn project_detail(
     };
 
     let escaped_slug = escape_html(&project.slug);
+    let (metadata, body) = split_project_markdown(&project.body);
     let content = template::render(
         include_str!("../templates/public/project_detail.html"),
         &[
             ("slug", escaped_slug),
             ("title", escape_html(&project.title)),
             ("summary", escape_html(&project.summary)),
+            ("metadata", project_metadata_html(&metadata)),
             ("image", project_image(&project)),
-            ("body", markdown_to_html(&project.body)),
+            ("body", markdown_to_html(body)),
         ],
     );
     Ok(Html(site_layout(

@@ -36,7 +36,7 @@ use axum::http::{HeaderMap, HeaderValue, header};
 #[cfg(test)]
 use render::{
     LayoutContext, absolute_url, asset_url, footer_link_html, footer_link_icon, layout_parts,
-    markdown_to_html,
+    markdown_to_html, project_metadata_html, split_project_markdown,
 };
 #[cfg(test)]
 use security::has_same_origin;
@@ -269,6 +269,22 @@ mod tests {
             absolute_url("https://example.com", "/uploads/image.png"),
             "https://example.com/uploads/image.png"
         );
+    }
+
+    #[test]
+    fn project_front_matter_is_split_from_body() {
+        let (metadata, body) = split_project_markdown(
+            "---\ndate: 2026\nstatus: Active\ntech: Rust, SQLite\nsource: https://github.com/example/project\n---\nBody",
+        );
+        assert_eq!(body, "Body");
+        assert_eq!(metadata.date.as_deref(), Some("2026"));
+        assert_eq!(metadata.status.as_deref(), Some("Active"));
+        assert_eq!(metadata.tech, ["Rust", "SQLite"]);
+        assert_eq!(metadata.links.len(), 1);
+        let html = project_metadata_html(&metadata);
+        assert!(html.contains("Active"));
+        assert!(html.contains("SQLite"));
+        assert!(html.contains("Source"));
     }
 
     #[test]

@@ -263,6 +263,97 @@ pub(crate) fn markdown_to_html(markdown: &str) -> String {
     format!("<div class=\"prose\">{output}</div>")
 }
 
+#[derive(Default)]
+pub(crate) struct ProjectMetadata {
+    pub(crate) date: Option<String>,
+    pub(crate) status: Option<String>,
+    pub(crate) tech: Vec<String>,
+    pub(crate) links: Vec<ProjectMetadataLink>,
+}
+
+pub(crate) struct ProjectMetadataLink {
+    pub(crate) label: &'static str,
+    pub(crate) url: String,
+}
+
+pub(crate) fn split_project_markdown(markdown: &str) -> (ProjectMetadata, &str) {
+    let Some(rest) = markdown.strip_prefix("---\n") else {
+        return (ProjectMetadata::default(), markdown);
+    };
+    let Some(end) = rest.find("\n---\n") else {
+        return (ProjectMetadata::default(), markdown);
+    };
+    let metadata_block = &rest[..end];
+    let body = &rest[end + "\n---\n".len()..];
+    let mut metadata = ProjectMetadata::default();
+    for line in metadata_block.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match key.trim().to_ascii_lowercase().as_str() {
+            "date" => metadata.date = Some(value.to_string()),
+            "status" => metadata.status = Some(value.to_string()),
+            "tech" => {
+                metadata.tech = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|item| !item.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect();
+            }
+            "source" | "repo" if is_http_url(value) => {
+                metadata.links.push(ProjectMetadataLink {
+                    label: "Source",
+                    url: value.to_string(),
+                });
+            }
+            "live" | "demo" if is_http_url(value) => {
+                metadata.links.push(ProjectMetadataLink {
+                    label: "Live",
+                    url: value.to_string(),
+                });
+            }
+            "docs" if is_http_url(value) => {
+                metadata.links.push(ProjectMetadataLink {
+                    label: "Docs",
+                    url: value.to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+    (metadata, body)
+}
+
+pub(crate) fn project_metadata_html(metadata: &ProjectMetadata) -> String {
+    let mut items = Vec::new();
+    if let Some(date) = &metadata.date {
+        items.push(format!("<span>{}</span>", escape_html(date)));
+    }
+    if let Some(status) = &metadata.status {
+        items.push(format!("<span>{}</span>", escape_html(status)));
+    }
+    for tech in &metadata.tech {
+        items.push(format!("<span>{}</span>", escape_html(tech)));
+    }
+    for link in &metadata.links {
+        items.push(format!(
+            r#"<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>"#,
+            escape_html(&link.url),
+            escape_html(link.label),
+        ));
+    }
+    if items.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="project-meta">{}</div>"#, items.join(""))
+    }
+}
+
 pub(crate) fn asset_url(path: &str) -> String {
     format!("{path}?v={ASSET_VERSION}")
 }

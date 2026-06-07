@@ -146,7 +146,7 @@ assert_status 303 \
   --data-urlencode 'title=Smoke Project' \
   --data-urlencode 'slug=smoke-project' \
   --data-urlencode 'summary=Smoke summary' \
-  --data-urlencode 'body=**Smoke body**' \
+  --data-urlencode $'body=---\ndate: 2026\nstatus: Testing\ntech: Rust, SQLite\nsource: https://github.com/example/smoke\n---\n**Smoke body**' \
   --data-urlencode 'image_path=' \
   --data-urlencode 'published=on' \
   --data-urlencode 'featured=on' \
@@ -155,6 +155,9 @@ assert_status 303 \
 PROJECT_RESPONSE="$(curl --silent --show-error "${BASE_URL}/projects/smoke-project")"
 assert_contains "${PROJECT_RESPONSE}" "<strong>Smoke body</strong>"
 assert_contains "${PROJECT_RESPONSE}" "Smoke summary"
+assert_contains "${PROJECT_RESPONSE}" "Testing"
+assert_contains "${PROJECT_RESPONSE}" "Rust"
+assert_contains "${PROJECT_RESPONSE}" "Source"
 PROJECTS_RESPONSE="$(curl --silent --show-error "${BASE_URL}/projects")"
 assert_contains "${PROJECTS_RESPONSE}" "Featured"
 
