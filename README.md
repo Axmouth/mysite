@@ -57,18 +57,43 @@ The smoke tests cover health checks, security headers, search metadata,
 `robots.txt`, `sitemap.xml`, origin checks, admin login, settings changes,
 project publishing, Markdown rendering, image uploads, and local editor assets.
 
+## Project metadata
+
+Project bodies are Markdown. A project can also start with a small metadata
+block. The metadata is removed from the rendered Markdown body and shown as
+badges and links near the project heading.
+
+```md
+---
+date: 2026
+status: Active
+tech: Rust, Axum, SQLite
+source: https://github.com/example/project
+live: https://example.com
+docs: https://example.com/docs
+---
+
+Project notes start here.
+```
+
+Supported keys are `date`, `status`, `tech`, `source`, `repo`, `live`,
+`demo`, and `docs`. `tech` is a comma separated list. External link fields
+must start with `http://` or `https://`.
+
 ## Code structure
 
-The Rust server starts in `src/main.rs`. Route handlers still live there, while
-shared pieces are split into focused modules:
+The Rust server starts in `src/main.rs`. Startup and router assembly live
+there, while handlers and shared pieces are split into focused modules:
 
 | Path | Purpose |
 | --- | --- |
-| `src/db.rs` | SQLite setup and read helpers |
+| `src/db.rs` | SQLite setup, reads, and writes |
 | `src/models.rs` | Shared state, records, and error type |
 | `src/render.rs` | Markdown rendering, page layout, icons, and error pages |
+| `src/routes.rs` | Public and admin route handlers |
 | `src/security.rs` | Security headers, origin checks, and admin-cookie checks |
 | `src/template.rs` | Small placeholder renderer for template files |
+| `src/uploads.rs` | Upload validation, storage, and cleanup |
 | `src/utils.rs` | Slugs, escaping, upload validation, and other helpers |
 | `templates/` | HTML templates used by the server |
 
@@ -271,3 +296,38 @@ The shared Traefik stack stores its TLS certificate state in its own
 `traefik-data` volume. Keep `/opt/proxy/.env`, `/opt/mysite/.env`, and the
 Docker volumes when maintaining the server. The `.env` files contain runtime
 configuration and are not uploaded by the deployment workflow.
+
+## Backups
+
+The app state lives in the `site-data` Docker volume. It contains the SQLite
+database and uploaded images. If the Compose file lives in `/opt/mysite`, the
+default volume name is usually `mysite_site-data`.
+
+Create a backup from the server:
+
+```sh
+cd /opt/mysite
+mkdir -p backups
+docker run --rm \
+  -v mysite_site-data:/data:ro \
+  -v "$PWD/backups:/backup" \
+  debian:bookworm-slim \
+  tar czf "/backup/mysite-site-data-$(date +%F).tar.gz" -C /data .
+```
+
+Restore a backup:
+
+```sh
+cd /opt/mysite
+docker compose -f compose.deploy.yaml down
+docker run --rm \
+  -v mysite_site-data:/data \
+  -v "$PWD/backups:/backup" \
+  debian:bookworm-slim \
+  sh -c 'rm -rf /data/* && tar xzf /backup/mysite-site-data-YYYY-MM-DD.tar.gz -C /data'
+docker compose -f compose.deploy.yaml up -d
+```
+
+Replace `YYYY-MM-DD` with the backup date. Keep a copy of `/opt/mysite/.env`
+too. For the shared proxy, back up `/opt/proxy/.env` and the `traefik-data`
+volume separately.
