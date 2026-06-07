@@ -9,14 +9,16 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
 };
-use rusqlite::params;
 use serde::Deserialize;
 
 use crate::{
     AppError, AppState,
     db::{
-        find_project_by_id, find_project_by_slug, list_footer_links, list_images, list_projects,
-        setting,
+        ProjectMutation, create_footer_link as insert_footer_link,
+        create_project as insert_project, delete_footer_link as remove_footer_link,
+        delete_project_and_images, find_project_by_id, find_project_by_slug, home_markdown,
+        list_footer_links, list_images, list_projects, setting, update_home_markdown,
+        update_project as save_project, update_settings as save_settings,
     },
     render::{
         image_library, layout, markdown_to_html, not_found, project_form, project_image,
@@ -24,16 +26,13 @@ use crate::{
     },
     security::is_admin,
     template,
-    uploads::{delete_image_record, image_file_name_by_id, remove_upload_file, store_image},
+    uploads::remove_upload_file,
+    uploads::store_image,
     utils::{escape_html, is_http_url, normalized_slug},
 };
 
 pub(crate) async fn home(State(state): State<Arc<AppState>>) -> Result<Html<String>, AppError> {
-    let markdown = state.db.lock().unwrap().query_row(
-        "SELECT value FROM settings WHERE key = 'home_markdown'",
-        [],
-        |row| row.get::<_, String>(0),
-    )?;
+    let markdown = home_markdown(&state)?;
     Ok(Html(site_layout(
         &state,
         &setting(&state, "home_seo_title")?,
@@ -334,20 +333,17 @@ pub(crate) async fn update_settings(
         )
             .into_response());
     }
-    let db = state.db.lock().unwrap();
-    for (key, value) in [
-        ("site_title", form.site_title),
-        ("home_seo_title", form.home_seo_title),
-        ("author_name", form.author_name),
-        ("site_description", form.site_description),
-        ("social_image", form.social_image),
-        ("copyright_claim", form.copyright_claim),
-    ] {
-        db.execute(
-            "UPDATE settings SET value = ?1 WHERE key = ?2",
-            params![value, key],
-        )?;
-    }
+    save_settings(
+        &state,
+        [
+            ("site_title", form.site_title),
+            ("home_seo_title", form.home_seo_title),
+            ("author_name", form.author_name),
+            ("site_description", form.site_description),
+            ("social_image", form.social_image),
+            ("copyright_claim", form.copyright_claim),
+        ],
+    )?;
     Ok(Redirect::to("/admin/settings").into_response())
 }
 
@@ -372,10 +368,7 @@ pub(crate) async fn create_footer_link(
         )
             .into_response());
     }
-    state.db.lock().unwrap().execute(
-        "INSERT INTO footer_links (label, url, sort_order) VALUES (?1, ?2, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM footer_links))",
-        params![form.label, form.url],
-    )?;
+    insert_footer_link(&state, &form.label, &form.url)?;
     Ok(Redirect::to("/admin/settings").into_response())
 }
 
@@ -387,11 +380,7 @@ pub(crate) async fn delete_footer_link(
     if !is_admin(&headers, &state) {
         return Ok(Redirect::to("/admin/login").into_response());
     }
-    state
-        .db
-        .lock()
-        .unwrap()
-        .execute("DELETE FROM footer_links WHERE id = ?1", [id])?;
+    remove_footer_link(&state, id)?;
     Ok(Redirect::to("/admin/settings").into_response())
 }
 
@@ -402,11 +391,7 @@ pub(crate) async fn admin_home(
     if !is_admin(&headers, &state) {
         return Ok(Redirect::to("/admin/login").into_response());
     }
-    let markdown = state.db.lock().unwrap().query_row(
-        "SELECT value FROM settings WHERE key = 'home_markdown'",
-        [],
-        |row| row.get::<_, String>(0),
-    )?;
+    let markdown = home_markdown(&state)?;
     let images = list_images(&state, "home", None)?;
     let content = template::render(
         include_str!("../templates/admin/home_form.html"),
@@ -431,10 +416,7 @@ pub(crate) async fn update_home(
     if !is_admin(&headers, &state) {
         return Ok(Redirect::to("/admin/login").into_response());
     }
-    state.db.lock().unwrap().execute(
-        "UPDATE settings SET value = ?1 WHERE key = 'home_markdown'",
-        [form.markdown],
-    )?;
+    update_home_markdown(&state, &form.markdown)?;
     Ok(Redirect::to("/admin").into_response())
 }
 
@@ -476,10 +458,16 @@ pub(crate) async fn create_project(
     if slug.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, "Project slug cannot be empty").into_response());
     }
-    if state.db.lock().unwrap().execute(
-        "INSERT INTO projects (slug, title, summary, body, image_path, published, featured) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![slug, form.title, form.summary, form.body, form.image_path, form.published.is_some(), form.featured.is_some()],
-    ).is_err() {
+    let project = ProjectMutation {
+        slug: &slug,
+        title: &form.title,
+        summary: &form.summary,
+        body: &form.body,
+        image_path: &form.image_path,
+        published: form.published.is_some(),
+        featured: form.featured.is_some(),
+    };
+    if insert_project(&state, &project).is_err() {
         return Ok((StatusCode::BAD_REQUEST, "Project slug is already in use").into_response());
     }
     Ok(Redirect::to("/admin").into_response())
@@ -523,10 +511,16 @@ pub(crate) async fn update_project(
     if slug.is_empty() {
         return Ok((StatusCode::BAD_REQUEST, "Project slug cannot be empty").into_response());
     }
-    if state.db.lock().unwrap().execute(
-        "UPDATE projects SET slug = ?1, title = ?2, summary = ?3, body = ?4, image_path = ?5, published = ?6, featured = ?7, updated_at = CURRENT_TIMESTAMP WHERE id = ?8",
-        params![slug, form.title, form.summary, form.body, form.image_path, form.published.is_some(), form.featured.is_some(), id],
-    ).is_err() {
+    let project = ProjectMutation {
+        slug: &slug,
+        title: &form.title,
+        summary: &form.summary,
+        body: &form.body,
+        image_path: &form.image_path,
+        published: form.published.is_some(),
+        featured: form.featured.is_some(),
+    };
+    if save_project(&state, id, &project).is_err() {
         return Ok((StatusCode::BAD_REQUEST, "Project slug is already in use").into_response());
     }
     Ok(Redirect::to("/admin").into_response())
@@ -544,12 +538,7 @@ pub(crate) async fn delete_project(
     for image in &images {
         remove_upload_file(&state.uploads_dir, &image.file_name).await?;
     }
-    let db = state.db.lock().unwrap();
-    db.execute(
-        "DELETE FROM images WHERE owner_type = 'project' AND owner_id = ?1",
-        [id],
-    )?;
-    db.execute("DELETE FROM projects WHERE id = ?1", [id])?;
+    delete_project_and_images(&state, id)?;
     Ok(Redirect::to("/admin").into_response())
 }
 
@@ -588,9 +577,9 @@ pub(crate) async fn delete_image(
     if !is_admin(&headers, &state) {
         return Ok(Redirect::to("/admin/login").into_response());
     }
-    if let Some(file_name) = image_file_name_by_id(&state, id)? {
+    if let Some(file_name) = crate::db::image_file_name_by_id(&state, id)? {
         remove_upload_file(&state.uploads_dir, &file_name).await?;
-        delete_image_record(&state, id)?;
+        crate::db::delete_image_record(&state, id)?;
     }
     Ok(Redirect::to("/admin").into_response())
 }

@@ -2,6 +2,16 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{AppError, AppState, DEFAULT_HOME, FooterLink, OwnedImage, Project};
 
+pub(crate) struct ProjectMutation<'a> {
+    pub(crate) slug: &'a str,
+    pub(crate) title: &'a str,
+    pub(crate) summary: &'a str,
+    pub(crate) body: &'a str,
+    pub(crate) image_path: &'a str,
+    pub(crate) published: bool,
+    pub(crate) featured: bool,
+}
+
 pub(crate) fn initialize_database(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(
         r#"
@@ -200,4 +210,153 @@ pub(crate) fn list_footer_links(state: &AppState) -> Result<Vec<FooterLink>, App
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(links)
+}
+
+pub(crate) fn update_settings(
+    state: &AppState,
+    values: impl IntoIterator<Item = (&'static str, String)>,
+) -> Result<(), AppError> {
+    let db = state.db.lock().unwrap();
+    for (key, value) in values {
+        db.execute(
+            "UPDATE settings SET value = ?1 WHERE key = ?2",
+            params![value, key],
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn create_footer_link(state: &AppState, label: &str, url: &str) -> Result<(), AppError> {
+    state.db.lock().unwrap().execute(
+        "INSERT INTO footer_links (label, url, sort_order) VALUES (?1, ?2, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM footer_links))",
+        params![label, url],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn delete_footer_link(state: &AppState, id: i64) -> Result<(), AppError> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM footer_links WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub(crate) fn home_markdown(state: &AppState) -> Result<String, AppError> {
+    setting(state, "home_markdown")
+}
+
+pub(crate) fn update_home_markdown(state: &AppState, markdown: &str) -> Result<(), AppError> {
+    state.db.lock().unwrap().execute(
+        "UPDATE settings SET value = ?1 WHERE key = 'home_markdown'",
+        [markdown],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn create_project(
+    state: &AppState,
+    project: &ProjectMutation<'_>,
+) -> rusqlite::Result<usize> {
+    state.db.lock().unwrap().execute(
+        "INSERT INTO projects (slug, title, summary, body, image_path, published, featured) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            project.slug,
+            project.title,
+            project.summary,
+            project.body,
+            project.image_path,
+            project.published,
+            project.featured
+        ],
+    )
+}
+
+pub(crate) fn update_project(
+    state: &AppState,
+    id: i64,
+    project: &ProjectMutation<'_>,
+) -> rusqlite::Result<usize> {
+    state.db.lock().unwrap().execute(
+        "UPDATE projects SET slug = ?1, title = ?2, summary = ?3, body = ?4, image_path = ?5, published = ?6, featured = ?7, updated_at = CURRENT_TIMESTAMP WHERE id = ?8",
+        params![
+            project.slug,
+            project.title,
+            project.summary,
+            project.body,
+            project.image_path,
+            project.published,
+            project.featured,
+            id
+        ],
+    )
+}
+
+pub(crate) fn delete_project_and_images(state: &AppState, id: i64) -> Result<(), AppError> {
+    let db = state.db.lock().unwrap();
+    db.execute(
+        "DELETE FROM images WHERE owner_type = 'project' AND owner_id = ?1",
+        [id],
+    )?;
+    db.execute("DELETE FROM projects WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub(crate) fn create_image_record(
+    state: &AppState,
+    file_name: &str,
+    original_name: &str,
+    owner_type: &str,
+    owner_id: Option<i64>,
+) -> Result<(), AppError> {
+    state.db.lock().unwrap().execute(
+        "INSERT INTO images (file_name, original_name, owner_type, owner_id) VALUES (?1, ?2, ?3, ?4)",
+        params![file_name, original_name, owner_type, owner_id],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn image_file_name_by_id(state: &AppState, id: i64) -> Result<Option<String>, AppError> {
+    Ok(state
+        .db
+        .lock()
+        .unwrap()
+        .query_row("SELECT file_name FROM images WHERE id = ?1", [id], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?)
+}
+
+pub(crate) fn delete_image_record(state: &AppState, id: i64) -> Result<(), AppError> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM images WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub(crate) fn orphaned_project_image_names(db: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut statement = db.prepare(
+        "SELECT file_name FROM images WHERE owner_type = 'project' AND owner_id NOT IN (SELECT id FROM projects)",
+    )?;
+    statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect()
+}
+
+pub(crate) fn delete_orphaned_project_image_records(db: &Connection) -> rusqlite::Result<()> {
+    db.execute(
+        "DELETE FROM images WHERE owner_type = 'project' AND owner_id NOT IN (SELECT id FROM projects)",
+        [],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn tracked_image_file_names(db: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut statement = db.prepare("SELECT file_name FROM images")?;
+    statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect()
 }

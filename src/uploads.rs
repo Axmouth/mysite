@@ -6,13 +6,17 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::Connection;
 use serde::Serialize;
 use tokio::fs;
 use uuid::Uuid;
 
 use crate::{
     AppError, AppState,
+    db::{
+        create_image_record, delete_orphaned_project_image_records, orphaned_project_image_names,
+        tracked_image_file_names,
+    },
     utils::{allowed_image_extension, image_bytes_match_extension},
 };
 
@@ -20,28 +24,12 @@ pub(crate) async fn cleanup_orphaned_uploads(
     db: &Connection,
     uploads_dir: &FilePath,
 ) -> Result<(), AppError> {
-    let orphaned = {
-        let mut statement = db.prepare(
-            "SELECT file_name FROM images WHERE owner_type = 'project' AND owner_id NOT IN (SELECT id FROM projects)",
-        )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    for file_name in orphaned {
+    for file_name in orphaned_project_image_names(db)? {
         remove_upload_file(uploads_dir, &file_name).await?;
     }
-    db.execute(
-        "DELETE FROM images WHERE owner_type = 'project' AND owner_id NOT IN (SELECT id FROM projects)",
-        [],
-    )?;
+    delete_orphaned_project_image_records(db)?;
 
-    let tracked = {
-        let mut statement = db.prepare("SELECT file_name FROM images")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
-    };
+    let tracked = tracked_image_file_names(db)?;
     let mut entries = fs::read_dir(uploads_dir).await?;
     while let Some(entry) = entries.next_entry().await? {
         let file_name = entry.file_name().to_string_lossy().into_owned();
@@ -131,16 +119,7 @@ pub(crate) async fn store_image(
         )
             .into_response();
     }
-    if state
-        .db
-        .lock()
-        .unwrap()
-        .execute(
-            "INSERT INTO images (file_name, original_name, owner_type, owner_id) VALUES (?1, ?2, ?3, ?4)",
-            params![stored_name, original_name, owner_type, owner_id],
-        )
-        .is_err()
-    {
+    if create_image_record(state, &stored_name, &original_name, owner_type, owner_id).is_err() {
         let _ = remove_upload_file(&state.uploads_dir, &stored_name).await;
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -159,24 +138,4 @@ pub(crate) async fn store_image(
 
 fn upload_error(error: &str) -> serde_json::Value {
     serde_json::json!({ "error": error })
-}
-
-pub(crate) fn image_file_name_by_id(state: &AppState, id: i64) -> Result<Option<String>, AppError> {
-    Ok(state
-        .db
-        .lock()
-        .unwrap()
-        .query_row("SELECT file_name FROM images WHERE id = ?1", [id], |row| {
-            row.get::<_, String>(0)
-        })
-        .optional()?)
-}
-
-pub(crate) fn delete_image_record(state: &AppState, id: i64) -> Result<(), AppError> {
-    state
-        .db
-        .lock()
-        .unwrap()
-        .execute("DELETE FROM images WHERE id = ?1", [id])?;
-    Ok(())
 }
