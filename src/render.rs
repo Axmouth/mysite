@@ -5,7 +5,8 @@ use axum::{
 use pulldown_cmark::{Event, Options, Parser, html};
 
 use crate::{
-    ASSET_VERSION, AppError, AppState, FooterLink, OwnedImage, Project, list_footer_links, setting,
+    ASSET_VERSION, AppError, AppState, FooterLink, OwnedImage, Project,
+    db::{list_footer_links, setting},
     template,
     utils::{escape_html, is_http_url},
 };
