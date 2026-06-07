@@ -14,11 +14,12 @@ use serde::Deserialize;
 use crate::{
     AppError, AppState,
     db::{
-        ProjectMutation, create_footer_link as insert_footer_link,
-        create_project as insert_project, delete_footer_link as remove_footer_link,
-        delete_project_and_images, find_project_by_id, find_project_by_slug, home_markdown,
-        list_footer_links, list_images, list_projects, setting, update_home_markdown,
-        update_project as save_project, update_settings as save_settings,
+        ProjectMutation, create_contact_message, create_footer_link as insert_footer_link,
+        create_project as insert_project, delete_contact_message,
+        delete_footer_link as remove_footer_link, delete_project_and_images, find_project_by_id,
+        find_project_by_slug, home_markdown, list_contact_messages, list_footer_links, list_images,
+        list_projects, setting, update_home_markdown, update_project as save_project,
+        update_settings as save_settings,
     },
     render::{
         image_library, layout, markdown_to_html, not_found, project_form, project_image,
@@ -114,6 +115,62 @@ pub(crate) async fn project_detail(
         false,
     )?)
     .into_response())
+}
+
+pub(crate) async fn contact_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, AppError> {
+    Ok(Html(site_layout(
+        &state,
+        "Contact",
+        "Send a private message for later review.",
+        "/contact",
+        None,
+        include_str!("../templates/public/contact.html"),
+        false,
+    )?))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ContactForm {
+    name: String,
+    email: String,
+    message: String,
+    website: String,
+}
+
+pub(crate) async fn submit_contact(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<ContactForm>,
+) -> Result<Response, AppError> {
+    let name = form.name.trim();
+    let email = form.email.trim();
+    let message = form.message.trim();
+    if !form.website.trim().is_empty() {
+        return Ok(Redirect::to("/contact/thanks").into_response());
+    }
+    if name.is_empty() || message.is_empty() {
+        return Ok((StatusCode::BAD_REQUEST, "Name and message are required").into_response());
+    }
+    if name.len() > 120 || email.len() > 240 || message.len() > 5_000 {
+        return Ok((StatusCode::BAD_REQUEST, "Message is too long").into_response());
+    }
+    create_contact_message(&state, name, email, message)?;
+    Ok(Redirect::to("/contact/thanks").into_response())
+}
+
+pub(crate) async fn contact_thanks(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, AppError> {
+    Ok(Html(site_layout(
+        &state,
+        "Message received",
+        "Your message was saved for later review.",
+        "/contact/thanks",
+        None,
+        include_str!("../templates/public/contact_thanks.html"),
+        false,
+    )?))
 }
 
 pub(crate) async fn healthz() -> &'static str {
@@ -264,6 +321,53 @@ pub(crate) async fn admin_dashboard(
         &[("rows", rows)],
     );
     Ok(Html(layout("Admin", &content, true)).into_response())
+}
+
+pub(crate) async fn admin_messages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    if !is_admin(&headers, &state) {
+        return Ok(Redirect::to("/admin/login").into_response());
+    }
+    let mut rows = String::new();
+    for message in list_contact_messages(&state)? {
+        let email = if message.email.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"<a href="mailto:{email}">{email}</a>"#,
+                email = escape_html(&message.email)
+            )
+        };
+        rows.push_str(&template::render(
+            include_str!("../templates/admin/message_row.html"),
+            &[
+                ("id", message.id.to_string()),
+                ("name", escape_html(&message.name)),
+                ("email", email),
+                ("message", escape_html(&message.message)),
+                ("created_at", escape_html(&message.created_at)),
+            ],
+        ));
+    }
+    let content = template::render(
+        include_str!("../templates/admin/messages.html"),
+        &[("messages", rows)],
+    );
+    Ok(Html(layout("Messages", &content, true)).into_response())
+}
+
+pub(crate) async fn delete_message(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    if !is_admin(&headers, &state) {
+        return Ok(Redirect::to("/admin/login").into_response());
+    }
+    delete_contact_message(&state, id)?;
+    Ok(Redirect::to("/admin/messages").into_response())
 }
 
 pub(crate) async fn admin_settings(

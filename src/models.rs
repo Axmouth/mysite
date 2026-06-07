@@ -39,6 +39,14 @@ pub(crate) struct OwnedImage {
     pub(crate) original_name: String,
 }
 
+pub(crate) struct ContactMessage {
+    pub(crate) id: i64,
+    pub(crate) name: String,
+    pub(crate) email: String,
+    pub(crate) message: String,
+    pub(crate) created_at: String,
+}
+
 #[derive(Debug)]
 pub(crate) struct AppError(pub(crate) String);
 

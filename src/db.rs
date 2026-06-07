@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::{AppError, AppState, DEFAULT_HOME, FooterLink, OwnedImage, Project};
+use crate::{AppError, AppState, ContactMessage, DEFAULT_HOME, FooterLink, OwnedImage, Project};
 
 pub(crate) struct ProjectMutation<'a> {
     pub(crate) slug: &'a str,
@@ -49,6 +49,14 @@ pub(crate) fn initialize_database(db: &Connection) -> rusqlite::Result<()> {
             original_name TEXT NOT NULL,
             owner_type TEXT NOT NULL CHECK (owner_type IN ('home', 'project')),
             owner_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS contact_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL DEFAULT '',
+            message TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         "#,
@@ -359,4 +367,45 @@ pub(crate) fn tracked_image_file_names(db: &Connection) -> rusqlite::Result<Vec<
     statement
         .query_map([], |row| row.get::<_, String>(0))?
         .collect()
+}
+
+pub(crate) fn create_contact_message(
+    state: &AppState,
+    name: &str,
+    email: &str,
+    message: &str,
+) -> Result<(), AppError> {
+    state.db.lock().unwrap().execute(
+        "INSERT INTO contact_messages (name, email, message) VALUES (?1, ?2, ?3)",
+        params![name, email, message],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn list_contact_messages(state: &AppState) -> Result<Vec<ContactMessage>, AppError> {
+    let db = state.db.lock().unwrap();
+    let mut statement = db.prepare(
+        "SELECT id, name, email, message, created_at FROM contact_messages ORDER BY created_at DESC, id DESC",
+    )?;
+    let messages = statement
+        .query_map([], |row| {
+            Ok(ContactMessage {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                email: row.get(2)?,
+                message: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(messages)
+}
+
+pub(crate) fn delete_contact_message(state: &AppState, id: i64) -> Result<(), AppError> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM contact_messages WHERE id = ?1", [id])?;
+    Ok(())
 }

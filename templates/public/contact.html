@@ -1,0 +1,12 @@
+<section class="admin-narrow">
+  <p class="eyebrow">Contact</p>
+  <h1>Send a message</h1>
+  <p class="lede">This saves a private note for later review. It does not send email.</p>
+  <form method="post" action="/contact" class="panel form-stack">
+    <label>Name<input name="name" autocomplete="name" maxlength="120" required></label>
+    <label>Email <span class="hint">(optional)</span><input name="email" type="email" autocomplete="email" maxlength="240"></label>
+    <label>Message<textarea name="message" rows="8" maxlength="5000" required></textarea></label>
+    <label class="visually-hidden">Website<input name="website" autocomplete="off" tabindex="-1"></label>
+    <button type="submit">Save message</button>
+  </form>
+</section>

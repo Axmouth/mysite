@@ -118,6 +118,25 @@ assert_status 303 \
 HOME_RESPONSE="$(curl --silent --show-error "${BASE_URL}/")"
 assert_contains "${HOME_RESPONSE}" "<title>Smoke Home SEO Title</title>"
 
+CONTACT_RESPONSE="$(curl --silent --show-error "${BASE_URL}/contact")"
+assert_contains "${CONTACT_RESPONSE}" "Send a message"
+assert_status 303 \
+  --data-urlencode 'name=Smoke Sender' \
+  --data-urlencode 'email=smoke@example.com' \
+  --data-urlencode 'message=Smoke message body' \
+  --data-urlencode 'website=' \
+  "${BASE_URL}/contact"
+THANKS_RESPONSE="$(curl --silent --show-error "${BASE_URL}/contact/thanks")"
+assert_contains "${THANKS_RESPONSE}" "Message received"
+MESSAGES_RESPONSE="$(curl --silent --show-error --cookie "${COOKIE_JAR}" "${BASE_URL}/admin/messages")"
+assert_contains "${MESSAGES_RESPONSE}" "Smoke Sender"
+assert_contains "${MESSAGES_RESPONSE}" "Smoke message body"
+assert_status 303 \
+  --cookie "${COOKIE_JAR}" \
+  --header "Origin: ${BASE_URL}" \
+  --data '' \
+  "${BASE_URL}/admin/messages/1/delete"
+
 PROJECTS_RESPONSE="$(curl --silent --show-error "${BASE_URL}/projects")"
 assert_contains "${PROJECTS_RESPONSE}" "<title>Projects | Smoke Site</title>"
 

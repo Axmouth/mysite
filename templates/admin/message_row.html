@@ -1,0 +1,13 @@
+<article class="panel message-card">
+  <header>
+    <div>
+      <strong>{{name}}</strong>
+      <p class="hint">{{email}}</p>
+    </div>
+    <span class="hint">{{created_at}}</span>
+  </header>
+  <p>{{message}}</p>
+  <form method="post" action="/admin/messages/{{id}}/delete">
+    <button class="danger" type="submit">Delete</button>
+  </form>
+</article>
